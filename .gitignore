@@ -36,3 +36,6 @@ eval/data/*.json
 *.pid
 eval/.cache/
 eval/runs/
+
+# Kaeva/unblock internal source — kept LOCAL, never published (operator ruling 2026-08-03)
+vendor/
