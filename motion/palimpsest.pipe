@@ -1,0 +1,105 @@
+{
+  "pipeline": {
+    "source": "webhook_1",
+    "project_id": "2c540cdb-058e-4fa9-98cb-d2e7681c3101",
+    "version": 1,
+    "components": [
+      {
+        "id": "webhook_1",
+        "provider": "webhook",
+        "name": "PALIMPSEST request",
+        "config": { "hideForm": true, "mode": "Source", "parameters": {}, "type": "webhook" }
+      },
+      {
+        "id": "question_1",
+        "provider": "question",
+        "name": "Decision question",
+        "config": { "type": "question" },
+        "input": [{ "lane": "text", "from": "webhook_1" }]
+      },
+      {
+        "id": "commander_1",
+        "provider": "agent_rocketride",
+        "name": "PALIMPSEST Commander",
+        "config": {
+          "profile": "default",
+          "default": {
+            "agent_description": "Combine live system state (NOW) with attributed FalkorDB memory (EVER) and return an evidence-backed ESCALATE or DISMISS decision.",
+            "instructions": [
+              "Your first wave must contain exactly two independent tool calls in the same batch so RocketRide runs them in parallel.",
+              "Call http.http_request with GET http://127.0.0.1:8931/v1/health for the live NOW signal.",
+              "Call falkordb.query against graph palimpsest with a read-only Cypher query for the historical EVER signal; choose the query yourself after inspecting the available tool schema.",
+              "After both results arrive, return ESCALATE or DISMISS and cite one concrete fact from each tool result. Never invent missing data."
+            ],
+            "max_waves": 12
+          }
+        },
+        "input": [{ "lane": "questions", "from": "question_1" }]
+      },
+      {
+        "id": "llm_anthropic_1",
+        "provider": "llm_anthropic",
+        "name": "Claude Sonnet",
+        "config": {
+          "profile": "claude-sonnet-4-6",
+          "claude-sonnet-4-6": { "apikey": "${ANTHROPIC_API_KEY}" }
+        },
+        "control": [{ "classType": "llm", "from": "commander_1" }]
+      },
+      {
+        "id": "memory_internal_1",
+        "provider": "memory_internal",
+        "name": "Wave working memory",
+        "config": { "type": "memory_internal" },
+        "control": [{ "classType": "memory", "from": "commander_1" }]
+      },
+      {
+        "id": "tool_falkordb_1",
+        "provider": "tool_falkordb",
+        "name": "PALIMPSEST memory",
+        "config": {
+          "profile": "default",
+          "default": {
+            "host": "127.0.0.1",
+            "port": 6401,
+            "graph": "palimpsest",
+            "allow_writes": false,
+            "max_rows": 50,
+            "query_timeout_ms": 30000
+          }
+        },
+        "control": [{ "classType": "tool", "from": "commander_1" }]
+      },
+      {
+        "id": "tool_http_request_1",
+        "provider": "tool_http_request",
+        "name": "PALIMPSEST live state",
+        "config": {
+          "profile": "default",
+          "default": {
+            "serverName": "http",
+            "allowGET": true,
+            "allowPOST": false,
+            "allowPUT": false,
+            "allowPATCH": false,
+            "allowDELETE": false,
+            "allowHEAD": false,
+            "allowOPTIONS": false,
+            "urlWhitelist": [{ "whitelistPattern": "^http://127\\.0\\.0\\.1:8931/.*$" }],
+            "rateLimitPerSecond": 10,
+            "rateLimitPerMinute": 100,
+            "maxConcurrentRequests": 5
+          }
+        },
+        "control": [{ "classType": "tool", "from": "commander_1" }]
+      },
+      {
+        "id": "response_answers_1",
+        "provider": "response_answers",
+        "name": "Decision response",
+        "config": { "laneName": "answers" },
+        "input": [{ "lane": "answers", "from": "commander_1" }]
+      }
+    ]
+  }
+}

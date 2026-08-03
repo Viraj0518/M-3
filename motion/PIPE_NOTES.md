@@ -7,6 +7,12 @@ hour 6, which is when the pipeline stops being debuggable.
 Companion file: [`memory/SCHEMA.md`](../memory/SCHEMA.md) — same trap register,
 graph schema and FalkorDB detail.
 
+Runnable artifact: [`palimpsest.pipe`](./palimpsest.pipe). Validate it without
+an LLM key using `python motion/client.py --validate-only`; run the full Wave
+with `ANTHROPIC_API_KEY` set and optionally persist the trace with
+`--trace plan/gates/rocketride-wave-trace.json` (the trace file is intentionally
+left untracked until it has been reviewed for provider output and secrets).
+
 Single source of constants: **`memory/config.py`**.
 
 ---
