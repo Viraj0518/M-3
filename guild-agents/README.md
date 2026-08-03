@@ -1,6 +1,6 @@
 # Guild.ai agent prototypes
 
-These are small, credential-free Guild.ai prototypes for the two MnemOS
+These are small, credential-free Guild.ai prototypes for the two PALIMPSEST
 specialists:
 
 - `extraction-agent/agent.ts` turns a conversation into structured memory candidates.
