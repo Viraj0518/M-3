@@ -36,14 +36,16 @@ node_modules/
 dist/
 .wrangler/
 
-# not needed in the image (Dockerfile copies app/, memory/ and fly/entrypoint.sh)
+# not needed in the image (Dockerfile copies app/, memory/, realtime/ and fly/entrypoint.sh)
 # fly/ is intentionally NOT ignored — the Dockerfile COPYs fly/entrypoint.sh.
+# realtime/ is intentionally NOT ignored — since PR #12 the Dockerfile COPYs
+# realtime/ (LaserData runtime); the global __pycache__/ rule above keeps its
+# caches out. Excluding it here breaks the build at the `COPY realtime/` step.
 eval/
 plan/
 vendor/
 demo/
 motion/
-realtime/
 agents/
 deploy/
 
