@@ -118,6 +118,36 @@
     .connection-badge.live { border-color: var(--green); color: #c4f9db; background: var(--green-dim); }
     .connection-badge.stale { border-color: var(--red); color: #ffc6c9; background: var(--red-dim); }
 
+    .status-banner {
+      position: fixed;
+      top: 84px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 60;
+      display: none;
+      align-items: center;
+      padding: 12px 30px;
+      border: 2px solid var(--amber);
+      border-radius: 999px;
+      background: rgba(60, 46, 20, .95);
+      color: #ffe1a6;
+      font: 820 clamp(16px, 1.6vw, 26px)/1 var(--mono);
+      letter-spacing: .22em;
+      text-transform: uppercase;
+      box-shadow: 0 0 48px rgba(255, 193, 92, .4), 0 14px 44px rgba(0, 0, 0, .6);
+      backdrop-filter: blur(6px);
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .status-banner.show { display: inline-flex; }
+    .status-banner.disconnected { border-color: var(--red); background: rgba(64, 29, 34, .95); color: #ffd0d3; box-shadow: 0 0 48px rgba(255, 105, 113, .45), 0 14px 44px rgba(0, 0, 0, .6); }
+
+    /* Whole-viewport colored frame: an unmistakable "this is not a live database" signal at
+       projector distance that hides no content. Amber = MOCK, red = DISCONNECTED. */
+    .mode-frame { position: fixed; inset: 0; z-index: 55; display: none; pointer-events: none; }
+    body.demo-fake .mode-frame { display: block; box-shadow: inset 0 0 0 4px var(--amber), inset 0 0 46px rgba(255, 193, 92, .14); }
+    body.demo-disc .mode-frame { display: block; box-shadow: inset 0 0 0 4px var(--red), inset 0 0 46px rgba(255, 105, 113, .16); }
+
     .status-dot {
       width: 8px;
       height: 8px;
@@ -319,6 +349,8 @@
     }
 
     .query-result.revealing { opacity: 1; transform: translateY(-2px); box-shadow: 0 0 52px rgba(75, 225, 242, .18); }
+    .query-result.no-ring { opacity: .5; box-shadow: none; border-color: var(--line-strong); }
+    .query-result.no-ring .run-value span:last-child { display: none; }
     .query-result .query-label { color: var(--cyan); font: 780 10px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
     .query-result .run-value { margin-top: 5px; font: 800 clamp(34px, 3.6vw, 56px)/.95 var(--mono); letter-spacing: -.06em; color: #ecfdff; font-variant-numeric: tabular-nums; }
     .query-result .run-value span { margin-left: 5px; font-size: .31em; letter-spacing: .09em; color: var(--cyan); }
@@ -578,6 +610,8 @@
 </head>
 <body>
   <main class="app-shell">
+    <div class="mode-frame" aria-hidden="true"></div>
+    <div id="statusBanner" class="status-banner" role="status" aria-live="assertive"></div>
     <header class="topbar">
       <div class="brand" aria-label="Palimpsest">
         <div class="brand-mark" aria-hidden="true"></div>
@@ -760,6 +794,15 @@
     (() => {
       "use strict";
 
+      // ── HONESTY RULES (UX-SPEC §4.4) — first thing to read ────────────────────────
+      // HR-1  A ring renders ONLY on server fired:true with real paths[0].ids. Never
+      //       synthesize one — findThreeHopPath is a MOCK illustrator, unreachable in LIVE.
+      // HR-2  run_time_ms is the server's measured number. In LIVE, absent → "—", never 2.45.
+      // HR-3  Node/edge counts are the server's meta counts, verbatim.
+      // HR-4  In LIVE, fired-action rows come only from real action.executed records with a URL;
+      //       bundled MOCK actions + "side effects fired" claims are MOCK-only.
+      // HR-5  MOCK is always badged MOCK. Fake data is fine iff the screen says it is fake.
+      // ──────────────────────────────────────────────────────────────────────────────
       const BRIDGE = "http://127.0.0.1:8931";
       const POLL_MS = 1500;
       const MAX_VISIBLE_NODES = 260;
@@ -843,7 +886,8 @@
 
       const mockRing = {
         ids: ["evt-live", "page-transit", "actor-northstar", "claim-campaign"],
-        run_time_ms: 2.45
+        run_time_ms: 2.45,
+        fired: true
       };
 
       const mockFeed = [
@@ -872,6 +916,8 @@
         feed: clone(mockFeed),
         actions: clone(mockActions),
         offsets: { raw: 41208, salient: 912, lag: 0, rejected: 97 },
+        spineSeen: false,
+        everLive: false,
         lastSync: null,
         ringStep: -1,
         ringActive: false,
@@ -884,13 +930,14 @@
         connectionBadge: el("connectionBadge"), connectionText: el("connectionText"),
         graphStage: el("graphStage"), splitButton: el("splitButton"), ringButton: el("ringButton"),
         approvalResetButton: el("approvalResetButton"), queryResult: el("queryResult"), runTimeValue: el("runTimeValue"),
+        queryLabel: document.querySelector("#queryResult .query-label"),
         liveGraphCount: el("liveGraphCount"), coldGraphCount: el("coldGraphCount"), warmGraphCount: el("warmGraphCount"),
         agentFeed: el("agentFeed"), actionList: el("actionList"), approvalCard: el("approvalCard"),
         approvalLabel: el("approvalLabel"), countdown: el("countdown"), approvalResult: el("approvalResult"),
         approveButton: el("approveButton"), dismissButton: el("dismissButton"),
         rawOffset: el("rawOffset"), salientOffset: el("salientOffset"), consumerLag: el("consumerLag"),
         eventsIn: el("eventsIn"), nodesCount: el("nodesCount"), rejectedPct: el("rejectedPct"),
-        sameInputOffset: el("sameInputOffset"), syncTime: el("syncTime")
+        sameInputOffset: el("sameInputOffset"), syncTime: el("syncTime"), statusBanner: el("statusBanner")
       };
 
       function node(id, type, label, properties = {}) { return { id, type, label, labels: [type], properties }; }
@@ -973,18 +1020,24 @@
 
       function normalizeRing(payload, graph) {
         const root = payload?.result ?? payload?.data ?? payload;
+        // HONESTY (HR-1/HR-2): a ring is real ONLY when the server reports fired:true and hands
+        // back real path ids. Never synthesize via findThreeHopPath here; never default the
+        // server's measured run_time_ms to a literal. On not-fired → no ring, run_time_ms null.
+        const fired = root?.fired === true || root?.fired === "true";
         const candidates = root?.paths ?? root?.rings ?? root?.path ?? [];
         let ids = [];
         if (Array.isArray(candidates) && candidates.length) {
           ids = Array.isArray(candidates[0]) || candidates[0]?.nodes || candidates[0]?.path
             ? extractRingIds(candidates[0]) : extractRingIds(candidates);
         } else ids = extractRingIds(candidates);
-        ids = ids.filter(id => graph.nodes.some(n => n.id === id));
-        if (ids.length < 4) ids = findThreeHopPath(graph);
+        ids = ids.filter(id => graph?.nodes?.some(n => n.id === id));
         const run = Number(root?.run_time_ms ?? root?.runtime_ms ?? root?.meta?.run_time_ms ?? root?.query?.run_time_ms);
-        return { ids, run_time_ms: Number.isFinite(run) ? run : 2.45 };
+        const run_time_ms = Number.isFinite(run) ? run : null;
+        if (!fired || ids.length < 2) return { ids: [], run_time_ms, fired: false };
+        return { ids, run_time_ms, fired: true };
       }
 
+      // MOCK-mode ring illustrator ONLY (HR-1). Must never be reached when state.mode === "live".
       function findThreeHopPath(graph) {
         const adjacency = new Map(graph.nodes.map(n => [n.id, []]));
         graph.edges.forEach(e => {
@@ -1069,9 +1122,9 @@
           const raw = Number(body.raw_offset ?? body.offsets?.raw ?? record?.offset);
           const salient = Number(body.salient_offset ?? body.offsets?.salient);
           const lag = Number(body.lag ?? body.consumer_lag ?? body.offsets?.lag);
-          if (Number.isFinite(raw)) state.offsets.raw = Math.max(state.offsets.raw, raw);
-          if (Number.isFinite(salient)) state.offsets.salient = salient;
-          if (Number.isFinite(lag)) state.offsets.lag = lag;
+          if (Number.isFinite(raw)) { state.offsets.raw = Math.max(state.offsets.raw, raw); state.spineSeen = true; }
+          if (Number.isFinite(salient)) { state.offsets.salient = salient; state.spineSeen = true; }
+          if (Number.isFinite(lag)) { state.offsets.lag = lag; state.spineSeen = true; }
           if (Number.isFinite(Number(body.rejected_pct))) state.offsets.rejected = Number(body.rejected_pct);
         }
         if (freshFeed.length) {
@@ -1139,13 +1192,28 @@
         }
 
         if (liveGraph) {
+          const wasLive = state.mode === "live";
           state.mode = "live";
+          state.everLive = true;
           state.failures = 0;
           state.graph = liveGraph;
           state.lastSync = new Date();
+          if (!wasLive) {
+            // HONESTY (HR-4/HR-5): entering LIVE drops ALL bundled MOCK data. Only real records
+            // may repopulate — actions from action.executed (with a URL), the agent lane from
+            // real stream events, and the LaserData offsets from a live spine. Nothing carries
+            // over from MOCK narration once the badge says LIVE.
+            state.actions = [];
+            state.feed = [];
+            state.offsets = { raw: 0, salient: 0, lag: 0, rejected: 0 };
+            state.spineSeen = false;
+            renderActions();
+            renderFeed();
+          }
           if (results[1].status === "fulfilled") applyStream(results[1].value);
           if (results[2].status === "fulfilled") state.ring = normalizeRing(results[2].value, state.graph);
-          else state.ring = normalizeRing({}, state.graph);
+          else state.ring = { ids: [], run_time_ms: null, fired: false };
+          if (!state.ring.fired) { state.ringStep = -1; state.ringActive = false; }
           syncGraphs();
           renderConnection();
           renderStats();
@@ -1153,31 +1221,79 @@
         }
 
         state.failures += 1;
-        if (state.mode === "live" && state.failures < 2) {
+        if (state.everLive && state.failures < 2) {
+          // One missed poll after a real connection — hold the last REAL graph, badge STALE.
           renderConnection("stale");
           return;
         }
+        if (state.everLive) {
+          // HONESTY (demo-fatal): the bridge is gone. NEVER fabricate back to MOCK on stage — that
+          // would animate the 3-hop money-shot on invented data with the database stopped. Freeze
+          // into an honest DISCONNECTED state (last real graph held static) and stop the ring.
+          state.mode = "disconnected";
+          stopRing();
+          renderConnection();
+          return;
+        }
+        // Never connected (cold boot / pure static pages.dev share): the self-contained MOCK demo
+        // is the correct, honest fallback and the badge says MOCK, loudly (big banner).
         if (state.mode !== "mock") {
           state.mode = "mock";
           state.graph = clone(mockGraph);
           state.ring = clone(mockRing);
           state.feed = clone(mockFeed);
           state.actions = clone(mockActions);
+          state.offsets = { raw: 41208, salient: 912, lag: 0, rejected: 97 };
+          state.spineSeen = false;
           syncGraphs();
           renderFeed();
           renderActions();
+          renderStats();
         }
         renderConnection();
       }
 
       function renderConnection(override) {
         const mode = override ?? state.mode;
-        dom.connectionBadge.className = `connection-badge ${mode === "live" ? "live" : mode === "stale" ? "stale" : ""}`;
-        dom.connectionText.textContent = mode === "live" ? "LIVE · BRIDGE CONNECTED" : mode === "stale" ? "STALE · RETRYING" : "MOCK · BRIDGE OFFLINE";
-        dom.syncTime.textContent = state.lastSync && mode === "live" ? `synced ${formatTime(state.lastSync)}` : mode === "stale" ? "last graph retained" : "deterministic fallback";
+        const badgeClass = mode === "live" ? "live" : (mode === "stale" || mode === "disconnected") ? "stale" : "";
+        dom.connectionBadge.className = `connection-badge ${badgeClass}`;
+        dom.connectionText.textContent = mode === "live" ? "LIVE · BRIDGE CONNECTED"
+          : mode === "stale" ? "STALE · RETRYING"
+          : mode === "disconnected" ? "DISCONNECTED · BRIDGE UNREACHABLE"
+          : "MOCK · BRIDGE OFFLINE";
+        dom.syncTime.textContent = state.lastSync && mode === "live" ? `synced ${formatTime(state.lastSync)}`
+          : mode === "stale" ? "last graph retained"
+          : mode === "disconnected" ? "bridge unreachable · frozen"
+          : "deterministic fallback";
+        // Big, persistent, projector-distance banner for the two fake-risk states so a judge at
+        // twenty feet can never mistake canned/frozen data for a live database. (HR-5)
+        const banner = dom.statusBanner;
+        if (banner) {
+          if (mode === "mock") { banner.textContent = "MOCK DATA · SELF-CONTAINED DEMO · BRIDGE OFFLINE"; banner.className = "status-banner show"; }
+          else if (mode === "disconnected") { banner.textContent = "DISCONNECTED · BRIDGE UNREACHABLE · DATA FROZEN"; banner.className = "status-banner show disconnected"; }
+          else { banner.className = "status-banner"; }
+        }
+        document.body.classList.toggle("demo-fake", mode === "mock");
+        document.body.classList.toggle("demo-disc", mode === "disconnected");
       }
 
       function renderStats() {
+        // HONESTY (LaserData spine): in LIVE, the raw/salient/lag/events/rejected readouts come
+        // ONLY from a real stream response. If the spine handed us no offsets this session, say so
+        // ("spine offline") — never the bundled MOCK 41,208. The FalkorDB node count is graph-
+        // derived (real in LIVE) so it is kept. MOCK renders its canned offsets under the MOCK badge.
+        if (state.mode === "live" && !state.spineSeen) {
+          const realNodes = Number(state.graph?.meta?.node_count ?? state.graph?.nodes?.length ?? 0);
+          dom.rawOffset.textContent = "spine offline";
+          dom.salientOffset.textContent = "—";
+          dom.consumerLag.textContent = "—";
+          dom.consumerLag.classList.remove("lag");
+          dom.eventsIn.textContent = "—";
+          dom.sameInputOffset.textContent = "—";
+          dom.rejectedPct.textContent = "—";
+          dom.nodesCount.textContent = formatInt(realNodes);
+          return;
+        }
         dom.rawOffset.textContent = formatInt(state.offsets.raw, 6);
         dom.salientOffset.textContent = formatInt(state.offsets.salient, 6);
         dom.consumerLag.textContent = formatInt(state.offsets.lag);
@@ -1238,7 +1354,11 @@
         if (status === "approved") {
           const now = formatTime(new Date());
           state.feed.push(feed(now, "commander", "decision", "Human approved · responder released to act"));
-          state.feed.push(feed(now, "responder", "action", "Discord + GitHub side effects fenced and executed"));
+          // HONESTY (HR-4): only claim external side effects fired when NOT live. In LIVE a real
+          // action.executed record (with a URL) is the only proof a side effect crossed outward.
+          state.feed.push(state.mode === "live"
+            ? feed(now, "responder", "action", "Responder released · awaiting server action.executed")
+            : feed(now, "responder", "action", "Discord + GitHub side effects fenced and executed"));
           state.feed = state.feed.slice(-40);
           renderFeed(true);
         }
@@ -1501,39 +1621,81 @@
         const actualEdges = Number(state.graph.meta?.edge_count ?? state.graph.edges.length);
         if (state.mode === "live") state.offsets.salient = actualNodes;
         dom.liveGraphCount.textContent = `${formatInt(actualNodes)} nodes · ${formatInt(actualEdges)} edges${actualNodes > state.graph.nodes.length ? ` · showing ${state.graph.nodes.length}` : ""}`;
-        dom.coldGraphCount.textContent = `${cold.nodes.length} nodes · replaying offset 0`;
+        dom.coldGraphCount.textContent = `${cold.nodes.length} nodes · ${state.mode === "live" ? "empty-memory projection" : "replaying offset 0"}`;
         const warmContext = state.ring.ids.length >= 4 ? "3-hop history joined" : "live graph joined";
         dom.warmGraphCount.textContent = `${formatInt(actualNodes)} nodes · ${warmContext}`;
-        dom.runTimeValue.textContent = formatRunTime(state.ring.run_time_ms);
+        renderRingCard();
       }
 
       function formatRunTime(value) {
         const number = Number(value);
-        if (!Number.isFinite(number)) return "2.45";
+        if (!Number.isFinite(number)) return "—";
         return number < 10 ? number.toFixed(2) : number.toFixed(1);
       }
 
+      // Reflect ring state on the query card. A "ring" (number + Cypher) shows ONLY when the
+      // current ring is real (server fired:true with ids, or explicit MOCK). Otherwise the card
+      // dims to "no ring in window" with an em-dash — never a fabricated time. (HR-1/HR-2)
+      function renderRingCard() {
+        const hasRing = !!(state.ring.fired && (state.ring.ids?.length ?? 0) >= 2);
+        dom.queryResult.classList.toggle("no-ring", !hasRing);
+        if (dom.queryLabel) dom.queryLabel.textContent = hasRing ? "3-hop ring · run_time_ms" : "3-hop ring · none in window";
+        dom.runTimeValue.textContent = formatRunTime(hasRing ? state.ring.run_time_ms : null);
+      }
+
       function animate(time) {
-        graphs.live.tick();
-        graphs.cold.tick();
-        graphs.warm.tick();
+        // Freeze physics when the bridge dropped: a DISCONNECTED stage holds the last REAL graph
+        // static — it must never keep animating as if data were still flowing.
+        if (state.mode !== "disconnected") {
+          graphs.live.tick();
+          graphs.cold.tick();
+          graphs.warm.tick();
+        }
         if (!state.split) graphs.live.draw(time);
         else { graphs.cold.draw(time); graphs.warm.draw(time); }
         requestAnimationFrame(animate);
       }
 
       let ringTimers = [];
+
+      // Hard-stop the ring: clear timers and the ring state so draw() highlights nothing. Used on
+      // DISCONNECT so the money-shot never traces over fabricated/held data.
+      function stopRing() {
+        ringTimers.forEach(clearTimeout);
+        ringTimers = [];
+        state.ring = { ids: [], run_time_ms: null, fired: false };
+        state.ringStep = -1;
+        state.ringActive = false;
+        dom.queryResult.classList.remove("revealing");
+        renderRingCard();
+      }
+
       function startRingReveal() {
         ringTimers.forEach(clearTimeout);
         ringTimers = [];
         const available = new Set(state.graph.nodes.map(n => n.id));
-        let ids = state.ring.ids.filter(id => available.has(id));
-        if (ids.length < 4) ids = findThreeHopPath(state.graph);
-        state.ring.ids = ids.slice(0, 4);
+        let ids = (state.ring.ids || []).filter(id => available.has(id));
+
+        // HONESTY (HR-1): on the LIVE data plane a ring reveals ONLY when the server returned
+        // fired:true with real path ids. Never synthesize a path client-side in LIVE.
+        if (state.mode === "live") {
+          if (!state.ring.fired || ids.length < 2) {
+            state.ring.ids = [];
+            state.ringStep = -1;
+            state.ringActive = false;
+            renderRingCard();
+            return;
+          }
+        } else if (ids.length < 4) {
+          // MOCK mode only: findThreeHopPath is the explicit, badged mock illustrator.
+          ids = findThreeHopPath(state.graph);
+        }
+
+        state.ring.ids = state.mode === "live" ? ids : ids.slice(0, 4);
         state.ringStep = 0;
         state.ringActive = true;
+        renderRingCard();
         dom.queryResult.classList.add("revealing");
-        dom.runTimeValue.textContent = formatRunTime(state.ring.run_time_ms);
         graphs.live.temperature = Math.max(graphs.live.temperature, .25);
         graphs.warm.temperature = Math.max(graphs.warm.temperature, .25);
         state.ring.ids.forEach((_, index) => {
