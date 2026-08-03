@@ -30,6 +30,21 @@ retrieval baseline drops every single-session-assistant question.
 Prefer several precise claims over one compound claim. Do not infer beyond what
 was said. If the session contains nothing worth remembering, return {"claims": []}.
 
+Extraction quality rules:
+- Preserve quantities, units, percentages, names, and dates exactly in `text`.
+- For a quantity or count, use a stable predicate such as `owned_bicycles` or
+  `completed_courses`; the predicate must be reusable when that value changes.
+- For an event, make the predicate describe the event slot (for example,
+  `met_person` or `ordered_gift`) and put the participants or object in
+  `entities`.
+- Resolve relative dates such as "last Tuesday" only to the session date when
+  the conversation provides enough information; otherwise keep the claim
+  dated to `valid_from` and do not invent a calendar date.
+- Do not emit a claim whose `text` is a whole paragraph, a question, or a list
+  of unrelated facts. Split it into atomic assertions.
+- Keep assistant assertions as evidence only when they are explicit and
+  relevant to the user's memory; do not promote generic advice or disclaimers.
+
 ---USER---
 Session date: {session_date}
 Session id: {session_id}

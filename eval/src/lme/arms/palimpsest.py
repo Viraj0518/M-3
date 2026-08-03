@@ -128,6 +128,11 @@ class PalimpsestArm(Arm):
                 "sufficiency": self.ablate_sufficiency,
             },
         }
+        from ..graph.audit import audit_graph
+
+        diag["graph_audit"] = audit_graph(
+            self._g, retrieval=res, ingest_report=self._report
+        ).to_json()
         if self._report is not None:
             diag["ingest"] = self._report.to_json()
 
