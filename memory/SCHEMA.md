@@ -58,6 +58,29 @@ fact rendered as node colour, rather than a caption on a slide. Stamp it via
 `app/bridge/identity.stamp_params()` / `identity.author_clause()` — the property
 name is spelled in exactly one place in the whole repo.
 
+## 1b. Labels the auth lane owns (separate graph, declared here on purpose)
+
+`auth/` (see `auth/README.md`) writes identity records. Per the rule above —
+*an unplanned label is invisible to every query already written* — they are
+declared rather than smuggled in:
+
+`AuthUser` · `AuthAccount` · `AuthSession` · `AuthVerification` · `AuthJwks` ·
+`AuthOauthClient` · `AuthOauthConsent` · `AuthOauthAccessToken` ·
+`AuthOauthRefreshToken` · `AuthAgent` · `AuthEvent`
+
+**They are not in this graph.** The auth service writes to its own key
+(`palimpsest_auth`, `AUTH_GRAPH_KEY`), never `palimpsest`, because `_h_graph`
+projects with an unfiltered `MATCH (n) … RETURN n` and totals with
+`MATCH (n) RETURN count(n)` — identity nodes in the warm graph would be drawn
+in the projector and inflate the on-stage node count.
+
+The `Auth` prefix (`AUTH_LABEL_PREFIX`) is the second, independent guard: a
+bare `:Agent` would collide head-on with `:Agent {agent_id, role}` above, and
+that collision is silent — existing queries would simply start returning nodes
+with none of the expected properties.
+
+So the ten labels below remain the ten labels of THIS graph.
+
 ## 2. Edges
 
 | Type | Direction | Properties |
