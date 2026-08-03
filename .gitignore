@@ -53,3 +53,6 @@ vendor/
 
 # firehose capture — large + regenerable via realtime/producer.py --source
 demo/*.ndjson
+
+# TEMP: workflows held out of pushed history until gh 'workflow' scope granted; re-add then
+.github/workflows/
