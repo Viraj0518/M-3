@@ -1,6 +1,13 @@
 # secrets — never commit key material
 .env
 .env.*
+# ...but `.env.example` is DOCUMENTATION, not a secret, and directive 3 requires
+# it to be committed as the record of every variable name the stack reads. The
+# `.env.*` line above silently swallowed it (`git check-ignore -v .env.example`
+# -> `.gitignore:3:.env.*`), so `git add deploy/.env.example` refused and the
+# only failure signal was the file quietly never appearing in `git status`.
+# The negation is scoped to exactly that one filename: `.env`, `.env.local`,
+# `.env.production` and every other `.env.*` stay ignored.
 !.env.example
 *.key
 credentials*.json

@@ -1,0 +1,29 @@
+# BuildKit reads `<dockerfile>.dockerignore` in preference to the context-root
+# `.dockerignore`, so this scopes the exclusion to THIS build without putting a
+# `.dockerignore` at the repo root where it would affect everyone.
+#
+# The build context is the repo root, so without this a teammate's local `.venv`
+# or `node_modules` would be uploaded to the daemon on every build. Nothing here
+# changes what lands in the image (the Dockerfile COPYs only `memory/` and
+# `app/`); this is purely about not shipping hundreds of MB to the builder.
+.git
+.venv
+venv
+node_modules
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.wrangler
+vendor
+eval/.cache
+eval/runs
+eval/data
+plan
+agents
+motion
+realtime
+deploy/.env
+**/.env
+**/*.log

@@ -1,0 +1,22 @@
+# See deploy/bridge/Dockerfile.dockerignore. The ui image needs only `app/web`
+# and `deploy/ui`, so everything heavy is excluded from the upload.
+.git
+.venv
+venv
+node_modules
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.wrangler
+vendor
+eval
+plan
+agents
+motion
+realtime
+memory
+deploy/.env
+**/.env
+**/*.log

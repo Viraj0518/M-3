@@ -1,0 +1,9 @@
+# Force LF on everything docker/sh consumes. CRLF in an entrypoint.sh or a
+# healthcheck produces the classic "exec format error" / "no such file or
+# directory" inside the container — the failure names the wrong thing entirely.
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.js text eol=lf

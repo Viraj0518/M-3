@@ -1,0 +1,375 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# PALIMPSEST — FINAL-DEPLOY stack.
+#
+# Directive 3: OPEN-SOURCEABLE FROM COMMIT ZERO.
+#   There are NO credentials in this file. Every value below is either a
+#   non-secret local-dev default or an ${ENV_VAR:-placeholder}. See .env.example
+#   for the variable names. `.env` is gitignored and never committed.
+#
+# Directive 4: everything local, everything in Docker.
+#
+# Directive 7: cold start is the definition of done.
+#   Every service declares a healthcheck and every depends_on uses
+#   `condition: service_healthy`. There is not a single `sleep` in this stack —
+#   readiness is gated by the container runtime, not by hope.
+#
+# Two modes:
+#   ./up.sh                      -> core stack (falkordb + browser + bridge + ui)
+#   ./up.sh --profile logspine   -> core stack + LaserData log spine (iggy + plane)
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# THE BRIDGE CONTRACT — read out of app/bridge/, not invented here
+# ═══════════════════════════════════════════════════════════════════════════
+#   port     8931          memory/config.py:BRIDGE_PORT (_env_int BRIDGE_PORT, 8931)
+#   health   GET /health   app/bridge/rest.py:403
+#              200 -> {ok:true, service:"palimpsest-bridge", version, git_sha,
+#                      bridge:"<host>:<port>", falkordb:{reachable:true,
+#                      latency_ms, endpoint}, laser:{...}, mcp:{...},
+#                      graphs:{warm,cold}}
+#              503 -> the same body with ok:false PLUS
+#                      code:"FALKORDB_UNAVAILABLE" and a human `error` string.
+#              /health is the ONLY route whose status is not 200 — every verb
+#              envelope rides on a 200 unless it carries an err() `code`, because
+#              the projector treats a non-2xx on /graph as BRIDGE OFFLINE.
+#   falkordb FALKORDB_HOST / FALKORDB_PORT  (memory/config.py:51-59)
+#   ui       GET /ui/      rest.py:477 mounts config.REPO_ROOT/app/web
+#   mcp      /mcp          streamable-http, SAME port (rest.py:469)
+#   openapi  GET /v1/openapi.json
+#
+name: palimpsest
+
+services:
+  # ---------------------------------------------------------------------------
+  # SPONSOR TECH 1 + 2 — FalkorDB attributed graph.
+  #   "who you are"  : (:Actor)/(:Page)/(:Claim)/(:Event) attributed facts, every
+  #                    write stamped with `author_agent` (app/bridge/identity.py)
+  #   "who it is"    : (:Agent)-[:HANDED_OFF_TO]->(:Agent) continuity edges, in
+  #                    the SAME graph, so the agent's self-knowledge and its
+  #                    knowledge of you share one substrate and one query.
+  # Remove this service and the bridge answers 503 FALKORDB_UNAVAILABLE — see the
+  # REMOVAL TEST section of README.md.
+  # ---------------------------------------------------------------------------
+  falkordb:
+    image: ${PALIMPSEST_FALKORDB_IMAGE:-falkordb/falkordb:latest}
+    container_name: ${PALIMPSEST_PROJECT:-palimpsest}-falkordb
+    restart: unless-stopped
+    init: true
+    environment:
+      # Non-secret. FalkorDB runs unauthenticated on the private compose network
+      # and is only published on ${PALIMPSEST_BIND_ADDRESS} (127.0.0.1 by default),
+      # so it is never reachable off this machine. If you want a password, set
+      # PALIMPSEST_REDIS_ARGS='--requirepass <yours>' in your local .env.
+      # Nothing secret is committed here.
+      REDIS_ARGS: ${PALIMPSEST_REDIS_ARGS:---save 60 1 --appendonly no}
+    ports:
+      # ---------------------------------------------------------------------
+      # 6401 ON THE HOST, 6379 IN THE CONTAINER — and that is deliberate.
+      # ---------------------------------------------------------------------
+      # memory/SCHEMA.md §5 / memory/config.py:52-59 pin **6401** because 6379
+      # (redis default) and 6399 (a stray redis-server verified live on a build
+      # box) produce a FALSE GREEN: the client connects fine over RESP and then
+      # fails with "unknown command GRAPH.QUERY". That trap is a *host* trap —
+      # it is about what else is listening on your laptop.
+      #
+      # Inside this compose network the name `falkordb` resolves to exactly one
+      # container, which is the stock image listening on its own 6379. There is
+      # no stray anything to collide with, so the bridge dials falkordb:6379
+      # (see PALIMPSEST_FALKORDB_CONTAINER_PORT below) while every human-facing
+      # surface — redis-cli, the eval harness, eval/README.md, GATE2 — keeps
+      # using 127.0.0.1:6401.
+      - "${PALIMPSEST_BIND_ADDRESS:-127.0.0.1}:${PALIMPSEST_FALKORDB_PORT:-6401}:6379"
+      # ---------------------------------------------------------------------
+      # falkordb-browser
+      # ---------------------------------------------------------------------
+      # DELIBERATELY NOT A SEPARATE SERVICE. The falkordb/falkordb image already
+      # ships and supervises falkordb-browser on container port 3000 in the same
+      # container. Splitting it out would mean either (a) running the same image
+      # twice with a command override, which starts a second redis-server we then
+      # have to suppress, or (b) chasing a browser-only image that FalkorDB does
+      # not publish. Both are strictly more moving parts for zero benefit, and
+      # both make the healthcheck lie: the UI is only meaningful when its own
+      # graph process is up, which is exactly the invariant a single container
+      # gives us for free. The healthcheck below therefore gates BOTH surfaces.
+      - "${PALIMPSEST_BIND_ADDRESS:-127.0.0.1}:${PALIMPSEST_BROWSER_PORT:-3100}:3000"
+    volumes:
+      # Named volume, not a bind mount: `down.sh` (and `up.sh`'s cold start) must
+      # be able to destroy state deterministically for the directive-7 fresh run.
+      - falkordb-data:/var/lib/falkordb/data
+    networks: [palimpsest]
+    healthcheck:
+      # `redis-cli PING` is the graph-plane liveness probe (redis-cli ships in the
+      # image at /usr/local/bin/redis-cli). The second clause probes the browser
+      # UI on :3000 using the node runtime that is also already in the image, so a
+      # half-up container (graph fine, UI dead) reports unhealthy instead of green.
+      test:
+        - CMD-SHELL
+        - >-
+          redis-cli PING | grep -q PONG &&
+          node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+      start_interval: 2s
+    stop_grace_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # bridge — THE REAL app/bridge/, not a placeholder.
+  #
+  # ONE dispatch table, FOUR surfaces (app/bridge/server.py:_VERB_DISPATCH):
+  #   REST  (the projector + seed scripts) · MCP streamable-http on the same port
+  #   · OpenAPI 3.0 (the Guild Integration document) · CLI.
+  #
+  # BUILD CONTEXT IS THE REPO ROOT, not ./bridge. The bridge is a package inside
+  # the repo (`app.bridge`) and imports `memory.config` / `memory.taxonomy` from
+  # the repo root, and rest.py serves the projector from `config.REPO_ROOT/
+  # app/web`. Anything narrower than the repo root cannot build it.
+  # ---------------------------------------------------------------------------
+  bridge:
+    build:
+      context: ${PALIMPSEST_REPO_ROOT:-..}
+      dockerfile: deploy/bridge/Dockerfile
+    image: ${PALIMPSEST_PROJECT:-palimpsest}-bridge:latest
+    container_name: ${PALIMPSEST_PROJECT:-palimpsest}-bridge
+    restart: unless-stopped
+    init: true
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    environment:
+      # 0.0.0.0 INSIDE THE CONTAINER IS REQUIRED, and it is not an exposure.
+      # memory/config.py defaults BRIDGE_HOST to 127.0.0.1, which is correct for
+      # a laptop process and fatal in a container: uvicorn would bind the
+      # container's own loopback and the published port would connect-refuse.
+      # The safety lives on the host side of the mapping — the `ports:` entry
+      # binds ${PALIMPSEST_BIND_ADDRESS}, 127.0.0.1 by default.
+      BRIDGE_HOST: "0.0.0.0"
+      BRIDGE_PORT: "${PALIMPSEST_BRIDGE_CONTAINER_PORT:-8931}"
+      # Service-name addressing on the compose network. No host ports involved.
+      # See the long comment on falkordb's `ports:` for why this is 6379 and the
+      # host mapping is 6401.
+      FALKORDB_HOST: ${PALIMPSEST_FALKORDB_HOST:-falkordb}
+      FALKORDB_PORT: "${PALIMPSEST_FALKORDB_CONTAINER_PORT:-6379}"
+      # Two graph keys on ONE server: the warm graph and the deliberately-empty
+      # cold graph the ablation beat A/Bs against.
+      PALIMPSEST_GRAPH_WARM: ${PALIMPSEST_GRAPH_WARM:-palimpsest}
+      PALIMPSEST_GRAPH_COLD: ${PALIMPSEST_GRAPH_COLD:-palimpsest_cold}
+      # Embedding width. MUST match the embedder AND the HNSW index — a mismatch
+      # corrupts the vector index SILENTLY (no error, just wrong neighbours).
+      PALIMPSEST_EMBED_DIM: "${PALIMPSEST_EMBED_DIM:-256}"
+      # Log-spine connection string. Empty by default: with the `logspine`
+      # profile off, nothing in the bridge's live path reads it, and /health
+      # reports the spine unreachable rather than pretending.
+      LASER_CONNECTION_STRING: ${LASER_CONNECTION_STRING:-}
+      ROCKETRIDE_URL: ${ROCKETRIDE_URL:-http://127.0.0.1:5565}
+    ports:
+      - "${PALIMPSEST_BIND_ADDRESS:-127.0.0.1}:${PALIMPSEST_BRIDGE_PORT:-8931}:${PALIMPSEST_BRIDGE_CONTAINER_PORT:-8931}"
+    networks: [palimpsest]
+    healthcheck:
+      # GET /health is a READINESS probe, not a liveness ping: rest.py:_probe_falkordb
+      # runs a real `RETURN 1` against the warm graph over RESP. Stop falkordb and
+      # /health flips to 503 + code FALKORDB_UNAVAILABLE, this container goes
+      # unhealthy within ~20s, and the runtime agrees with the body. That is the
+      # removal test, enforced by compose.
+      #
+      # python, not curl/wget: python:3.12-slim ships neither, and adding one
+      # would mean an apt-get at build time i.e. a second network dependency.
+      test: ["CMD", "python", "/usr/local/bin/palimpsest-healthcheck.py"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+      start_interval: 2s
+    stop_grace_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # ui — the projector (app/web/index.html), served standalone on 5173.
+  #
+  # The SAME page is also served by the bridge at http://127.0.0.1:8931/ui/
+  # (rest.py mounts it same-origin). This service exists because DEPLOY.md's
+  # contract is "served by the bridge at /ui/ **or any static host**", and 5173
+  # is the static-host half of that claim — proving the projector has no build
+  # step and no server-side dependency.
+  #
+  # NOTE: app/web/index.html hard-codes `const BRIDGE = "http://127.0.0.1:8931"`
+  # (line 581), so the page talks to the bridge's PUBLISHED host port from the
+  # browser, never over the compose network. Change PALIMPSEST_BRIDGE_PORT and
+  # you must change that constant too — they are one contract in two files.
+  # ---------------------------------------------------------------------------
+  ui:
+    build:
+      context: ${PALIMPSEST_REPO_ROOT:-..}
+      dockerfile: deploy/ui/Dockerfile
+    image: ${PALIMPSEST_PROJECT:-palimpsest}-ui:latest
+    container_name: ${PALIMPSEST_PROJECT:-palimpsest}-ui
+    restart: unless-stopped
+    init: true
+    depends_on:
+      bridge:
+        condition: service_healthy
+    environment:
+      PALIMPSEST_UI_PORT: "5173"
+      # Advertised in the served /config.js for any future page that wants it.
+      # Browser-side calls go to the published host port, not the compose DNS name.
+      PALIMPSEST_BRIDGE_PUBLIC_URL: ${PALIMPSEST_BRIDGE_PUBLIC_URL:-http://127.0.0.1:8931}
+    ports:
+      - "${PALIMPSEST_BIND_ADDRESS:-127.0.0.1}:${PALIMPSEST_UI_PORT:-5173}:5173"
+    networks: [palimpsest]
+    healthcheck:
+      # node, not wget/curl: the slim base has neither, and adding one would mean
+      # an apt-get at build time i.e. a network dependency on the cold start.
+      test: ["CMD", "node", "/app/healthcheck.js"]
+      interval: 5s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+      start_interval: 2s
+    stop_grace_period: 10s
+
+  # ===========================================================================
+  # SPONSOR TECH 3 — LaserData log spine (Apache Iggy + LaserData plane).
+  #
+  #   >>> WHY THESE TWO SERVICES ARE BEHIND `profile: logspine` <<<
+  #
+  # They are NOT optional to the architecture. They are the constant datastream:
+  # every observation the agent makes is appended to an Iggy stream and the
+  # LaserData plane indexes it, so the whole session is replayable from offset 0.
+  # They are profiled out ONLY because the DEFAULT DEV/JUDGING HOST KERNEL IS TOO
+  # OLD TO RUN THE FORK.
+  #
+  # ── CONFIRMED ROOT CAUSE (this is not a WSL2 defect) ──────────────────────
+  # The `-ld` iggy fork (`laserdatainc/iggy-server`, which laser-plane REQUIRES)
+  # issues io_uring operations whose opcodes landed in **~Linux 6.11** — suspect
+  # class IORING_OP_BIND / IORING_OP_LISTEN. On older kernels the ring SETS UP
+  # FINE and then panics at runtime when an unsupported op is issued and is not
+  # offloaded to a worker thread:
+  #
+  #   thread 'shard-0' panicked at compio-driver-0.12.4/src/asyncify.rs:118:25:
+  #   the thread pool is needed but no worker thread is running
+  #   Error: ShardJoinFailures { failures: [ShardJoinFailure { shard_id: 0,
+  #     kind: Panic { message: "the thread pool is needed but no worker thread
+  #     is running" } }] }
+  #
+  # ── VERIFIED KERNEL MATRIX ────────────────────────────────────────────────
+  #   6.6.87   WSL2 / Docker Desktop, Windows 11   amd64   FAIL
+  #   6.8.0-117 stock Ubuntu 24.04, colima VZ      arm64   FAIL
+  #   6.14.0-37 Ubuntu 25.04, lima VZ              arm64   PASS (full smoke pass)
+  #
+  # Controlled for in EVERY row, on BOTH architectures: seccomp:unconfined AND
+  # apparmor:unconfined (both confirmed applied via `docker inspect`), root vs
+  # uid-10001, kernel.io_uring_disabled=0, `:latest` vs `:edge` tags, plane on
+  # and off. Upstream `apache/iggy` boots CLEAN on every host in the matrix —
+  # which is what proves the defect is the fork's io_uring usage and not the
+  # kernel generically.
+  #
+  # ── IT IS NOT A WSL2-SPECIFIC DEFECT ──────────────────────────────────────
+  # It reproduces identically on stock Ubuntu 24.04 under colima with no WSL
+  # anywhere in the picture. The `Environment: WSL2 (Microsoft kernel fork
+  # detected)` banner iggy prints on the Windows host is incidental and misled
+  # an earlier revision of this file; the discriminator is the KERNEL VERSION.
+  #
+  # ── AND UPSTREAM IS NOT A SUBSTITUTE ──────────────────────────────────────
+  # laser-plane is VSR-locked to the fork: pointed at `apache/iggy` it fails with
+  # `Timed out waiting for VSR response header, code 12`. So "just use upstream"
+  # is not a fallback — the whole spine needs the fork, which needs >= ~6.11.
+  #
+  # Receipts: plan/gates/GATE0-laserdata-local.md (kernel matrix + a no-admin
+  # lima Ubuntu 25.04 recipe) and deploy/SPONSOR-BUG-REPORT-DRAFT.md.
+  #
+  # So: on a >= 6.11 host (lima Ubuntu 25.04, recent native Linux) run
+  # `./up.sh --profile logspine` and the spine comes up for real. On an older
+  # kernel it stays inert by default so a cold start on a judging machine is
+  # GREEN instead of stuck in a crash-loop that has nothing to do with our code.
+  # Nothing else in this compose file changes between the two modes.
+  # ===========================================================================
+  iggy:
+    profiles: ["logspine"]
+    image: ${LASER_IGGY_IMAGE:-docker.io/laserdatainc/iggy-server:latest}
+    container_name: ${PALIMPSEST_PROJECT:-palimpsest}-iggy
+    restart: unless-stopped
+    init: true
+    # Carried over verbatim from the vendor reference stack (laser-stack/compose.yaml)
+    # and REQUIRED on hardened Linux hosts (the fork uses io_uring syscalls that
+    # Docker's default seccomp profile blocks). They are NOT the fix for the
+    # pre-6.11 panic — that was controlled for; see the matrix above.
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    cap_add:
+      - SYS_NICE
+    environment:
+      IGGY_ROOT_USERNAME: ${LASER_IGGY_USERNAME:-iggy}
+      # NOT A SECRET. Local-only dev placeholder for a broker that is bound to
+      # 127.0.0.1 and lives for the length of a demo. Override in .env; never
+      # commit a real one. Kept as a default (rather than a `:?` required var) so
+      # `docker compose config` parses on a fresh clone with no .env present.
+      IGGY_ROOT_PASSWORD: ${LASER_IGGY_PASSWORD:-palimpsest-local-dev}
+      IGGY_TCP_ADDRESS: 0.0.0.0:8090
+      IGGY_HTTP_ADDRESS: 0.0.0.0:3000
+      IGGY_QUIC_ENABLED: "false"
+      IGGY_WEBSOCKET_ENABLED: "false"
+      IGGY_PLANE_ENABLED: "true"
+      IGGY_PLANE_SOCKET_PATH: /run/laserdata/plane.sock
+      IGGY_PLANE_REQUEST_TIMEOUT: 15s
+      IGGY_SYSTEM_PATH: /var/lib/iggy
+    ports:
+      - "${PALIMPSEST_BIND_ADDRESS:-127.0.0.1}:${LASER_IGGY_PORT:-8090}:8090"
+      - "${PALIMPSEST_BIND_ADDRESS:-127.0.0.1}:${LASER_IGGY_HTTP_PORT:-3000}:3000"
+    volumes:
+      - iggy-data:/var/lib/iggy
+      # Shared unix-socket dir: this is how the plane talks to iggy's query plane.
+      - plane-run:/run/laserdata
+    networks: [palimpsest]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/iggy-healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+      start_interval: 2s
+    stop_grace_period: 30s
+
+  plane:
+    profiles: ["logspine"]
+    image: ${LASER_PLANE_IMAGE:-docker.io/laserdatainc/laser-plane:latest}
+    container_name: ${PALIMPSEST_PROJECT:-palimpsest}-plane
+    restart: unless-stopped
+    init: true
+    depends_on:
+      # Upgraded from the vendor reference (which used a bare depends_on) to a
+      # real readiness gate, per directive 7.
+      iggy:
+        condition: service_healthy
+    environment:
+      LD_PLANE_IGGY_URL: tcp://iggy:8090
+      LD_PLANE_IGGY_HTTP_URL: http://iggy:3000
+      LD_PLANE_IGGY_USERNAME: ${LASER_IGGY_USERNAME:-iggy}
+      # NOT A SECRET — same local-only placeholder as above. Must match iggy's.
+      LD_PLANE_IGGY_PASSWORD: ${LASER_IGGY_PASSWORD:-palimpsest-local-dev}
+      LD_PLANE_IGGY_TLS_DISABLED: "true"
+      LD_PLANE_QUERY_SOCKET: /run/laserdata/plane.sock
+      LD_PLANE_DB_PATH: /var/lib/laser-plane/index.db
+      LD_PLANE_HEALTH_ADDR: 0.0.0.0:8089
+    volumes:
+      - plane-data:/var/lib/laser-plane
+      - plane-run:/run/laserdata
+    networks: [palimpsest]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/plane-healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+      start_interval: 2s
+    stop_grace_period: 30s
+
+networks:
+  palimpsest:
+    driver: bridge
+
+volumes:
+  falkordb-data:
+  iggy-data:
+  plane-data:
+  plane-run:
