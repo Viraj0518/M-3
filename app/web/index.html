@@ -159,6 +159,16 @@
 
     .topbar-spacer { flex: 1; }
 
+    .thesis-line {
+      color: #dfe9ef;
+      font: 780 clamp(11px, .78vw, 14px)/1.15 var(--mono);
+      letter-spacing: .075em;
+      text-align: center;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .thesis-line strong { color: var(--cyan); }
+
     .demo-controls { display: flex; align-items: center; gap: 8px; }
 
     .control-button {
@@ -382,8 +392,8 @@
       box-shadow: 0 24px 70px rgba(0, 0, 0, .52);
     }
 
-    .verdict-card.cold { border-color: #8d3940; background: rgba(38, 13, 17, .92); }
-    .verdict-card.warm { border-color: #267e89; background: rgba(6, 31, 36, .92); }
+    .verdict-card.cold { border-color: #52616e; background: rgba(19, 25, 31, .94); }
+    .verdict-card.warm { border-color: #c84f58; background: rgba(51, 16, 21, .94); box-shadow: 0 0 54px rgba(255, 105, 113, .12); }
     .turns { display: flex; flex-direction: column; justify-content: center; align-items: center; border-right: 1px solid rgba(255, 255, 255, .13); }
     .turns strong { font: 820 39px/.9 var(--mono); font-variant-numeric: tabular-nums; }
     .turns span { margin-top: 6px; color: var(--muted); font: 700 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
@@ -391,12 +401,18 @@
     .graph-stage.split .turns strong { font-size: clamp(68px, 6.2vw, 104px); letter-spacing: -.06em; }
     .graph-stage.split .turns span { font-size: 12px; }
     .verdict-label { font: 750 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
-    .cold .verdict-label, .cold .turns strong { color: var(--red); }
-    .warm .verdict-label, .warm .turns strong { color: var(--cyan); }
+    .cold .verdict-label, .cold .turns strong { color: #9aa8b4; }
+    .warm .verdict-label { color: var(--red); }
+    .warm .turns strong { color: var(--cyan); }
     .verdict-text { margin-top: 5px; font-size: clamp(15px, 1.12vw, 21px); font-weight: 780; line-height: 1.1; }
     .graph-stage.split .verdict-label { font-size: 12px; }
     .graph-stage.split .verdict-text { margin-top: 8px; font-size: clamp(34px, 3.55vw, 62px); font-weight: 880; line-height: .9; letter-spacing: 0; }
+    .verdict-card.cold .verdict-text { color: #a9b5bf; }
+    .verdict-card.warm .verdict-text { color: var(--red); text-shadow: 0 0 28px rgba(255, 105, 113, .24); }
     .verdict-subline { margin-top: 8px; color: #e7eef3; font-size: clamp(14px, 1vw, 18px); font-weight: 700; line-height: 1.2; }
+    .verdict-metrics { display: flex; flex-wrap: wrap; gap: 7px 14px; margin-top: 10px; color: #aab7c1; font: 730 11px/1 var(--mono); letter-spacing: .05em; text-transform: uppercase; }
+    .verdict-metrics strong { color: #f4f8fb; font-weight: 850; }
+    .verdict-card.warm .verdict-metrics strong { color: #fff0f1; }
     .transcript { margin-top: 7px; color: #b2bec8; font: 560 10px/1.35 var(--mono); }
     .graph-stage.split .transcript { margin-top: 10px; color: #cdd7de; font-size: clamp(11px, .86vw, 14px); }
     .transcript span { color: #667583; }
@@ -442,6 +458,21 @@
     .handover-chip span { display: block; color: var(--muted); font: 800 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
     .handover-chip strong { display: block; margin-top: 5px; overflow: hidden; color: #f4f8fb; font-size: 14px; font-weight: 820; line-height: 1.08; text-overflow: ellipsis; white-space: nowrap; }
     .handover-chip small { display: block; margin-top: 5px; color: #abb8c2; font-size: 11px; line-height: 1.25; }
+
+    .sponsor-role {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      margin-left: auto;
+      padding: 5px 8px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      color: #dce6ec;
+      font: 800 9px/1 var(--mono);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
 
     .agent-feed {
       min-height: 0;
@@ -532,9 +563,10 @@
     .sponsor-gates { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding: 0; background: linear-gradient(90deg, rgba(75, 225, 242, .025), rgba(187, 167, 255, .055)); }
     .sponsor-cell { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 5px; padding: 0 13px; border-right: 1px solid var(--line); }
     .sponsor-cell:last-child { border-right: 0; }
-    .sponsor-cell span { color: var(--muted); font: 800 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
+    .sponsor-cell > span { color: var(--muted); font: 800 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
     .sponsor-cell strong { overflow: hidden; color: #f1fbfd; font: 820 clamp(14px, 1vw, 19px)/1 var(--mono); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
     .sponsor-cell small { overflow: hidden; color: #94a3af; font-size: 10px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
+    .layer-tag { display: inline !important; margin-right: 6px; color: var(--cyan) !important; font-size: 8px !important; }
     .sync-block { border-right: 0; flex-direction: column; align-items: flex-end; justify-content: center; gap: 6px; min-width: 180px; }
     .sync-time { color: var(--muted); font: 660 10px/1 var(--mono); font-variant-numeric: tabular-nums; }
 
@@ -547,6 +579,7 @@
       .workspace { grid-template-columns: minmax(0, 1fr) 390px; }
       .brand { min-width: 250px; }
       .brand-tagline { display: none; }
+      .thesis-line { display: none; }
       .control-key { display: none; }
       .graph-legend .legend-item:nth-last-child(-n+2) { display: none; }
       .bottom-strip { grid-template-columns: minmax(280px, .8fr) minmax(470px, 1.3fr) auto; }
@@ -627,6 +660,10 @@
 
       <div class="topbar-spacer"></div>
 
+      <div class="thesis-line">Already knows who you are · <strong>pulls context, never asks</strong></div>
+
+      <div class="topbar-spacer"></div>
+
       <nav class="demo-controls" aria-label="Demo controls">
         <button id="ringButton" class="control-button primary" type="button" aria-keyshortcuts="R">3-hop reveal</button>
         <button id="splitButton" class="control-button active" type="button" aria-pressed="true" aria-keyshortcuts="S">Cold | Warm</button>
@@ -637,7 +674,7 @@
     <div class="workspace">
       <section class="panel graph-shell" aria-labelledby="graphTitle">
         <div class="panel-heading">
-          <span class="eyebrow">FalkorDB</span>
+          <span class="eyebrow">02 · EVER · FalkorDB</span>
           <h1 id="graphTitle" class="panel-title">Same event, opposite verdicts</h1>
           <div class="graph-legend" aria-label="Graph legend">
             <span class="legend-item"><i class="legend-dot" style="--dot: var(--amber)"></i>Actor</span>
@@ -664,20 +701,21 @@
           <div class="split-stage" aria-label="Cold and warm memory comparison">
             <div class="ablation-input" aria-label="Identical event entering cold and warm agents">
               <span>Same event</span>
-              <strong>Transit authority safety page edited by Northstar-7</strong>
-              <small>LaserData offset <b id="sameInputOffset">041,208</b></small>
+              <strong id="ablationEvent">Transit authority safety page edited by Northstar-7</strong>
+              <small id="ablationStatus"><span id="ablationMode">MOCK · LaserData</span> <b id="sameInputOffset">041,208</b></small>
             </div>
             <div class="graph-panel cold">
               <canvas id="coldCanvas" aria-label="Cold replay graph"></canvas>
               <div class="canvas-label"><span class="cold-text">COLD</span><small>EMPTY MEMORY</small></div>
               <div id="coldGraphCount" class="graph-count">8 nodes · replaying offset 0</div>
               <div class="verdict-card cold">
-                <div class="turns"><strong>04</strong><span>turns</span><em>interrogation</em></div>
+                <div class="turns"><strong id="coldTurns">04</strong><span>turns</span><em>interrogation</em></div>
                 <div>
-                  <div class="verdict-label">Cold verdict · missing graph memory</div>
-                  <div class="verdict-text">NO ACTION</div>
-                  <div class="verdict-subline">Looks routine because identity and history are absent.</div>
-                  <div class="transcript"><span>AGENT ASKS:</span> Which account? Which page? Has this happened before?</div>
+                  <div id="coldVerdictLabel" class="verdict-label">Cold verdict · missing graph memory</div>
+                  <div id="coldVerdict" class="verdict-text">DISMISS</div>
+                  <div id="coldVerdictSubline" class="verdict-subline">Looks routine because identity and history are absent.</div>
+                  <div id="coldTranscript" class="transcript"><span>AGENT ASKS:</span> Which account? Which page? Has this happened before?</div>
+                  <div class="verdict-metrics"><span>FalkorDB <strong id="coldRunTime">— ms</strong></span><span>ring <strong id="coldRingCount">0</strong></span></div>
                 </div>
               </div>
             </div>
@@ -687,12 +725,13 @@
               <div class="canvas-label"><span class="warm-text">WARM</span><small>FULL HISTORY</small></div>
               <div id="warmGraphCount" class="graph-count">24 nodes · 3-hop history joined</div>
               <div class="verdict-card warm">
-                <div class="turns"><strong>01</strong><span>turn</span><em>answers now</em></div>
+                <div class="turns"><strong id="warmTurns">01</strong><span>turn</span><em>answers now</em></div>
                 <div>
-                  <div class="verdict-label">Warm verdict · 0 questions asked</div>
-                  <div class="verdict-text">ESCALATE</div>
-                  <div class="verdict-subline">Fourth coordinated move found through 3-hop history.</div>
-                  <div class="transcript"><span>AGENT PULLS:</span> FalkorDB graph + LaserData replay; RocketRide/Guild gather.</div>
+                  <div id="warmVerdictLabel" class="verdict-label">Warm verdict · 0 questions asked</div>
+                  <div id="warmVerdict" class="verdict-text">ESCALATE</div>
+                  <div id="warmVerdictSubline" class="verdict-subline">Fourth coordinated move found through 3-hop history.</div>
+                  <div id="warmTranscript" class="transcript"><span>AGENT PULLS:</span> FalkorDB EVER + LaserData NOW in one RocketRide Wave.</div>
+                  <div class="verdict-metrics"><span>FalkorDB <strong id="warmRunTime">2.45 ms</strong></span><span>real paths <strong id="warmRingCount">1</strong></span></div>
                 </div>
               </div>
             </div>
@@ -703,14 +742,14 @@
       <aside class="right-rail">
         <section class="panel agent-panel" aria-labelledby="agentTitle">
           <div class="panel-heading">
-            <span class="eyebrow">Identity</span>
-            <h2 id="agentTitle" class="panel-title">Agent lane</h2>
+            <span class="eyebrow">03 · MOTION · RocketRide</span>
+            <h2 id="agentTitle" class="panel-title">Decide + act</h2>
             <div class="lane-state"><span class="status-dot"></span>Thinking</div>
           </div>
           <div class="handover-map" aria-label="Agent identity and handover path">
             <div class="handover-chip identity"><span>Handover node</span><strong>watcher -> commander</strong><small>identity survives resume</small></div>
             <div class="handover-chip wave"><span>RocketRide Wave</span><strong>NOW || EVER</strong><small>parallel context pull</small></div>
-            <div class="handover-chip guild"><span>Guild</span><strong>task.gather</strong><small>analyst + responder</small></div>
+            <div class="handover-chip guild"><span>Guild · coordination</span><strong>task.gather</strong><small>agent handoffs + human gate</small></div>
             <div class="handover-chip"><span>Human asks</span><strong>approval only</strong><small>no context interview</small></div>
           </div>
           <div id="agentFeed" class="agent-feed" role="log" aria-live="polite" aria-relevant="additions"></div>
@@ -718,8 +757,8 @@
 
         <section class="panel case-panel" aria-labelledby="caseTitle">
           <div class="panel-heading">
-            <span class="eyebrow">Approval</span>
-            <h2 id="caseTitle" class="panel-title">Case / action</h2>
+            <span class="eyebrow">04 · COORDINATION · Guild</span>
+            <h2 id="caseTitle" class="panel-title">Handoffs + approval</h2>
             <div class="panel-meta">PROVENANCE ATTACHED</div>
           </div>
           <div class="case-content">
@@ -733,7 +772,7 @@
 
             <div id="approvalCard" class="approval-card">
               <div class="approval-top">
-                <div id="approvalLabel" class="approval-label">Only human question</div>
+                <div id="approvalLabel" class="approval-label">Guild · only human question</div>
                 <div id="countdown" class="countdown">00:20</div>
               </div>
               <div class="approval-question">Approve external escalation?</div>
@@ -754,7 +793,7 @@
 
     <footer class="bottom-strip" aria-label="LaserData status and salience gate counters">
       <div class="strip-block">
-        <div class="laser-lockup"><span class="laser-glyph">L</span>LaserData</div>
+        <div class="laser-lockup"><span class="laser-glyph">L</span><span>01 · NOW<br>LaserData log</span></div>
         <div class="offsets">
           <div class="offset"><span>raw offset</span><strong id="rawOffset">041,208</strong></div>
           <div class="offset"><span>salient</span><strong id="salientOffset">000,912</strong></div>
@@ -763,28 +802,28 @@
       </div>
       <div class="strip-block sponsor-gates">
         <div class="sponsor-cell">
-          <span>FalkorDB</span>
+          <span><b class="layer-tag">NOW</b>LaserData</span>
+          <strong><span id="eventsIn">41,208</span> durable</strong>
+          <small>ordered log · <span id="rejectedPct">97%</span> gated</small>
+        </div>
+        <div class="sponsor-cell">
+          <span><b class="layer-tag">EVER</b>FalkorDB</span>
           <strong><span id="nodesCount">912</span> nodes</strong>
-          <small>warm graph traversed</small>
+          <small>live graph + real ring</small>
         </div>
         <div class="sponsor-cell">
-          <span>RocketRide</span>
-          <strong>NOW || EVER</strong>
-          <small>parallel context wave</small>
+          <span><b class="layer-tag">MOTION</b>RocketRide</span>
+          <strong>DECIDE + ACT</strong>
+          <small>NOW ∥ EVER agent wave</small>
         </div>
         <div class="sponsor-cell">
-          <span>Guild</span>
-          <strong>task.gather</strong>
-          <small>agent work orders</small>
-        </div>
-        <div class="sponsor-cell">
-          <span>Gate</span>
-          <strong><span id="eventsIn">41,208</span> in</strong>
-          <small><span id="rejectedPct">97%</span> rejected</small>
+          <span><b class="layer-tag">COORDINATION</b>Guild</span>
+          <strong>HANDOFF + GATE</strong>
+          <small>agents gather · human approves</small>
         </div>
       </div>
       <div class="strip-block sync-block">
-        <div class="strip-label">Bridge · 127.0.0.1:8931</div>
+        <div id="bridgeLabel" class="strip-label">Bridge · 127.0.0.1:8931</div>
         <div id="syncTime" class="sync-time">fallback ready</div>
       </div>
     </footer>
@@ -803,7 +842,11 @@
       //       bundled MOCK actions + "side effects fired" claims are MOCK-only.
       // HR-5  MOCK is always badged MOCK. Fake data is fine iff the screen says it is fake.
       // ──────────────────────────────────────────────────────────────────────────────
-      const BRIDGE = "http://127.0.0.1:8931";
+      const params = new URLSearchParams(location.search);
+      const IS_STATIC_HOST = location.protocol === "https:" && location.hostname.endsWith(".pages.dev");
+      // pages.dev is deliberately a dependency-free MOCK artifact: the hosted bridge is readonly
+      // and returns 403 for the stateful ablation. A query override remains useful everywhere else.
+      const BRIDGE = IS_STATIC_HOST ? "" : (params.get("bridge") || "http://127.0.0.1:8931").replace(/\/$/, "");
       const POLL_MS = 1500;
       const MAX_VISIBLE_NODES = 260;
 
@@ -890,6 +933,21 @@
         fired: true
       };
 
+      const mockAblation = {
+        source: "mock",
+        opposite: true,
+        event: { actor: "Northstar-7", page: "Transit authority safety page", role: "the fourth coordinated move" },
+        verdictWarm: "escalate",
+        verdictCold: "dismiss",
+        turnsWarm: 1,
+        turnsCold: 4,
+        warm: { fired: true, ring_count: 1, ring_score: .93, run_time_ms: 2.45, seeded: { ingested: 4 } },
+        cold: { fired: false, ring_count: 0, ring_score: 0, run_time_ms: null, seeded: { ingested: 1 } },
+        warmGraph: clone(mockGraph),
+        coldGraph: null,
+        ring: clone(mockRing)
+      };
+
       const mockFeed = [
         feed("11:42:06", "watcher", "signal", "LaserData offset 41,208 received; edit is novel."),
         feed("11:42:06", "watcher", "handoff", "watcher <span class=\"handoff-arrow\">→</span> commander · case.opened P-2048"),
@@ -912,6 +970,9 @@
         failures: 0,
         graph: clone(mockGraph),
         ring: clone(mockRing),
+        ablation: clone(mockAblation),
+        ablationStatus: "ready",
+        ablationLoading: false,
         split: true,
         feed: clone(mockFeed),
         actions: clone(mockActions),
@@ -937,7 +998,13 @@
         approveButton: el("approveButton"), dismissButton: el("dismissButton"),
         rawOffset: el("rawOffset"), salientOffset: el("salientOffset"), consumerLag: el("consumerLag"),
         eventsIn: el("eventsIn"), nodesCount: el("nodesCount"), rejectedPct: el("rejectedPct"),
-        sameInputOffset: el("sameInputOffset"), syncTime: el("syncTime"), statusBanner: el("statusBanner")
+        sameInputOffset: el("sameInputOffset"), syncTime: el("syncTime"), statusBanner: el("statusBanner"), bridgeLabel: el("bridgeLabel"),
+        ablationEvent: el("ablationEvent"), ablationStatus: el("ablationStatus"), ablationMode: el("ablationMode"),
+        coldTurns: el("coldTurns"), warmTurns: el("warmTurns"), coldVerdict: el("coldVerdict"), warmVerdict: el("warmVerdict"),
+        coldVerdictLabel: el("coldVerdictLabel"), warmVerdictLabel: el("warmVerdictLabel"),
+        coldVerdictSubline: el("coldVerdictSubline"), warmVerdictSubline: el("warmVerdictSubline"),
+        coldTranscript: el("coldTranscript"), warmTranscript: el("warmTranscript"),
+        coldRunTime: el("coldRunTime"), warmRunTime: el("warmRunTime"), coldRingCount: el("coldRingCount"), warmRingCount: el("warmRingCount")
       };
 
       function node(id, type, label, properties = {}) { return { id, type, label, labels: [type], properties }; }
@@ -1008,33 +1075,70 @@
         return { nodes: limitedNodes, edges: limitedEdges, meta: root?.meta ?? { node_count: nodes.length, edge_count: edges.length } };
       }
 
-      function extractRingIds(candidate) {
-        if (!candidate) return [];
-        if (Array.isArray(candidate)) {
-          return candidate.map(endpointId).filter(Boolean);
-        }
-        if (Array.isArray(candidate.nodes)) return candidate.nodes.map(endpointId).filter(Boolean);
-        if (Array.isArray(candidate.path)) return extractRingIds(candidate.path);
-        return [];
-      }
-
       function normalizeRing(payload, graph) {
         const root = payload?.result ?? payload?.data ?? payload;
         // HONESTY (HR-1/HR-2): a ring is real ONLY when the server reports fired:true and hands
         // back real path ids. Never synthesize via findThreeHopPath here; never default the
         // server's measured run_time_ms to a literal. On not-fired → no ring, run_time_ms null.
-        const fired = root?.fired === true || root?.fired === "true";
-        const candidates = root?.paths ?? root?.rings ?? root?.path ?? [];
-        let ids = [];
-        if (Array.isArray(candidates) && candidates.length) {
-          ids = Array.isArray(candidates[0]) || candidates[0]?.nodes || candidates[0]?.path
-            ? extractRingIds(candidates[0]) : extractRingIds(candidates);
-        } else ids = extractRingIds(candidates);
+        const fired = root?.fired === true;
+        const firstPath = Array.isArray(root?.paths) ? root.paths[0] : null;
+        let ids = Array.isArray(firstPath?.ids) ? firstPath.ids.map(endpointId).filter(Boolean) : [];
         ids = ids.filter(id => graph?.nodes?.some(n => n.id === id));
         const run = Number(root?.run_time_ms ?? root?.runtime_ms ?? root?.meta?.run_time_ms ?? root?.query?.run_time_ms);
         const run_time_ms = Number.isFinite(run) ? run : null;
         if (!fired || ids.length < 2) return { ids: [], run_time_ms, fired: false };
         return { ids, run_time_ms, fired: true };
+      }
+
+      function graphFromPaths(paths) {
+        const rawNodes = [];
+        const rawEdges = [];
+        for (const path of Array.isArray(paths) ? paths : []) {
+          if (Array.isArray(path?.nodes)) rawNodes.push(...path.nodes);
+          if (Array.isArray(path?.edges)) rawEdges.push(...path.edges);
+        }
+        const uniqueNodes = [...new Map(rawNodes.map(item => [endpointId(item), item])).values()];
+        const uniqueEdges = [...new Map(rawEdges.map((item, index) => [
+          `${endpointId(item?.src ?? item?.source)}:${endpointId(item?.dest ?? item?.target)}:${item?.relation ?? item?.type ?? index}`,
+          item
+        ])).values()];
+        return normalizeGraph({ nodes: uniqueNodes, edges: uniqueEdges, meta: { node_count: uniqueNodes.length, edge_count: uniqueEdges.length } });
+      }
+
+      function normalizeAblation(payload) {
+        const root = payload?.result ?? payload?.data ?? payload;
+        const warm = root?.warm && typeof root.warm === "object" ? root.warm : {};
+        const cold = root?.cold && typeof root.cold === "object" ? root.cold : {};
+        const verdictWarm = typeof root?.verdict_warm === "string" ? root.verdict_warm.toLowerCase() : null;
+        const verdictCold = typeof root?.verdict_cold === "string" ? root.verdict_cold.toLowerCase() : null;
+        const warmGraph = graphFromPaths(warm.paths);
+        const ring = normalizeRing({ fired: warm.fired, paths: warm.paths, run_time_ms: warm.run_time_ms }, warmGraph);
+        if (!verdictWarm || !verdictCold || !warmGraph.nodes.length) throw new Error("ABLATION_CONTRACT");
+
+        const event = root?.event && typeof root.event === "object" ? root.event : {};
+        const eventId = String(event.event_id ?? "cold-new-event");
+        const eventLabel = [event.actor, event.page].filter(Boolean).join(" → ") || event.summary || "same new event";
+        const coldGraph = {
+          nodes: [node(eventId, "Event", eventLabel, { emphasis: true, source: "server ablation event" })],
+          edges: [],
+          meta: { node_count: 1, edge_count: 0 }
+        };
+        return {
+          source: "live",
+          opposite: root?.opposite_verdict === true,
+          event,
+          verdictWarm,
+          verdictCold,
+          // Turns are the canonical interaction count for this fixed demo scenario. The verdict,
+          // graph path, ring count, and timings remain server-measured and are never inferred.
+          turnsWarm: Number(root?.turns_to_answer?.warm ?? root?.turns_warm ?? 1),
+          turnsCold: Number(root?.turns_to_answer?.cold ?? root?.turns_cold ?? 4),
+          warm,
+          cold,
+          warmGraph,
+          coldGraph,
+          ring
+        };
       }
 
       // MOCK-mode ring illustrator ONLY (HR-1). Must never be reached when state.mode === "live".
@@ -1161,9 +1265,9 @@
         return date.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
       }
 
-      async function fetchJson(path) {
+      async function fetchJson(path, timeoutMs = 1100) {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 1100);
+        const timeout = setTimeout(() => controller.abort(), timeoutMs);
         try {
           const response = await fetch(`${BRIDGE}${path}`, { cache: "no-store", headers: { Accept: "application/json" }, signal: controller.signal });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1177,7 +1281,42 @@
         return Boolean(payload?.err || payload?.error || payload?.code || payload?.ok === false && /unavailable|error|err/i.test(String(payload?.status ?? payload?.code ?? "")));
       }
 
+      function disconnectAndFreeze(reason) {
+        if (!state.everLive) return;
+        state.mode = "disconnected";
+        state.ablationStatus = reason || "bridge unreachable";
+        stopRing();
+        renderAblation();
+        renderConnection();
+      }
+
+      async function fetchAblation() {
+        if (!BRIDGE || state.mode !== "live" || state.ablationLoading) return;
+        state.ablationLoading = true;
+        state.ablationStatus = "running";
+        renderAblation();
+        try {
+          const payload = await fetchJson("/v1/ablation", 15000);
+          if (isErrPayload(payload)) throw new Error("ABLATION_ERR");
+          const ablation = normalizeAblation(payload);
+          state.ablation = ablation;
+          state.ablationStatus = ablation.opposite ? "opposite verdict verified" : "verdicts did not diverge";
+          state.ring = ablation.ring;
+          syncGraphs();
+          renderAblation();
+          startRingReveal();
+        } catch (_) {
+          // A LIVE proof surface may never slide back to bundled values. Any ablation fetch failure
+          // is a visible disconnect and a hard freeze; reload is the explicit recovery action.
+          disconnectAndFreeze("ablation unavailable");
+        } finally {
+          state.ablationLoading = false;
+          renderAblation();
+        }
+      }
+
       async function pollBridge() {
+        if (!BRIDGE || state.mode === "disconnected") return;
         const results = await Promise.allSettled([
           fetchJson("/graph"),
           fetchJson("/stream_tail?limit=80"),
@@ -1189,6 +1328,12 @@
         if (graphResult.status === "fulfilled") {
           const normalized = normalizeGraph(graphResult.value);
           if (normalized.nodes.length) liveGraph = normalized;
+        }
+
+        const liveFetchFailed = results.some(result => result.status === "rejected" || isErrPayload(result.value));
+        if (liveGraph && liveFetchFailed) {
+          if (state.everLive) disconnectAndFreeze("live fetch failed");
+          return;
         }
 
         if (liveGraph) {
@@ -1207,32 +1352,31 @@
             state.feed = [];
             state.offsets = { raw: 0, salient: 0, lag: 0, rejected: 0 };
             state.spineSeen = false;
+            state.ablation = null;
+            state.ablationStatus = "waiting for real ablation";
             renderActions();
             renderFeed();
           }
           if (results[1].status === "fulfilled") applyStream(results[1].value);
-          if (results[2].status === "fulfilled") state.ring = normalizeRing(results[2].value, state.graph);
+          if (state.split && state.ablation?.source === "live") state.ring = state.ablation.ring;
+          else if (state.split) state.ring = { ids: [], run_time_ms: null, fired: false };
+          else if (results[2].status === "fulfilled") state.ring = normalizeRing(results[2].value, state.graph);
           else state.ring = { ids: [], run_time_ms: null, fired: false };
           if (!state.ring.fired) { state.ringStep = -1; state.ringActive = false; }
           syncGraphs();
+          renderAblation();
           renderConnection();
           renderStats();
+          if (state.split && !state.ablation && !state.ablationLoading) fetchAblation();
           return;
         }
 
         state.failures += 1;
-        if (state.everLive && state.failures < 2) {
-          // One missed poll after a real connection — hold the last REAL graph, badge STALE.
-          renderConnection("stale");
-          return;
-        }
         if (state.everLive) {
-          // HONESTY (demo-fatal): the bridge is gone. NEVER fabricate back to MOCK on stage — that
-          // would animate the 3-hop money-shot on invented data with the database stopped. Freeze
-          // into an honest DISCONNECTED state (last real graph held static) and stop the ring.
-          state.mode = "disconnected";
-          stopRing();
-          renderConnection();
+          // HONESTY (demo-fatal): one failed LIVE graph fetch is enough. Hold the last real graph,
+          // stop every live animation, and require a reload rather than quietly recovering through
+          // a state a judge could mistake for current data.
+          disconnectAndFreeze("graph fetch failed");
           return;
         }
         // Never connected (cold boot / pure static pages.dev share): the self-contained MOCK demo
@@ -1255,12 +1399,17 @@
 
       function renderConnection(override) {
         const mode = override ?? state.mode;
+        let bridgeName = "127.0.0.1";
+        if (BRIDGE) {
+          try { bridgeName = new URL(BRIDGE).hostname; } catch (_) { bridgeName = BRIDGE; }
+        }
         const badgeClass = mode === "live" ? "live" : (mode === "stale" || mode === "disconnected") ? "stale" : "";
         dom.connectionBadge.className = `connection-badge ${badgeClass}`;
-        dom.connectionText.textContent = mode === "live" ? "LIVE · BRIDGE CONNECTED"
+        dom.connectionText.textContent = mode === "live" ? `LIVE · ${bridgeName}`
           : mode === "stale" ? "STALE · RETRYING"
           : mode === "disconnected" ? "DISCONNECTED · BRIDGE UNREACHABLE"
-          : "MOCK · BRIDGE OFFLINE";
+          : IS_STATIC_HOST ? "MOCK · PAGES.DEV" : "MOCK · BRIDGE OFFLINE";
+        dom.bridgeLabel.textContent = BRIDGE ? `Bridge · ${BRIDGE.replace(/^https?:\/\//, "")}` : "Bridge · static mock only";
         dom.syncTime.textContent = state.lastSync && mode === "live" ? `synced ${formatTime(state.lastSync)}`
           : mode === "stale" ? "last graph retained"
           : mode === "disconnected" ? "bridge unreachable · frozen"
@@ -1300,8 +1449,51 @@
         dom.consumerLag.classList.toggle("lag", state.offsets.lag < 10);
         dom.eventsIn.textContent = formatInt(state.offsets.raw);
         dom.sameInputOffset.textContent = formatInt(state.offsets.raw, 6);
-        dom.nodesCount.textContent = formatInt(state.offsets.salient);
+        dom.nodesCount.textContent = formatInt(state.graph?.meta?.node_count ?? state.graph?.nodes?.length ?? state.offsets.salient);
         dom.rejectedPct.textContent = `${Math.round(state.offsets.rejected)}%`;
+      }
+
+      function renderAblation() {
+        const proof = state.ablation;
+        const isLiveProof = proof?.source === "live";
+        const isUnavailableLive = state.mode !== "mock" && !proof;
+        if (isUnavailableLive) {
+          dom.ablationEvent.textContent = state.ablationLoading ? "Running identical event through both FalkorDB graphs…" : "Real ablation unavailable";
+          dom.ablationMode.textContent = state.mode === "disconnected" ? "DISCONNECTED · FROZEN" : "LIVE · ABLATION RUNNING";
+          dom.coldVerdict.textContent = "—";
+          dom.warmVerdict.textContent = "—";
+          dom.coldTurns.textContent = "—";
+          dom.warmTurns.textContent = "—";
+          dom.coldRunTime.textContent = "— ms";
+          dom.warmRunTime.textContent = "— ms";
+          dom.coldRingCount.textContent = "—";
+          dom.warmRingCount.textContent = "—";
+          return;
+        }
+        if (!proof) return;
+
+        const event = proof.event ?? {};
+        dom.ablationEvent.textContent = event.actor || event.page
+          ? `${event.actor ?? "same actor"} edits ${event.page ?? "same page"}`
+          : "Same event enters both memory conditions";
+        dom.ablationMode.textContent = state.mode === "disconnected" ? "DISCONNECTED · FROZEN"
+          : isLiveProof
+          ? (state.ablationLoading ? "LIVE · RERUNNING REAL ABLATION" : proof.opposite ? "LIVE · OPPOSITE VERDICT VERIFIED" : "LIVE · VERDICTS DID NOT DIVERGE")
+          : "MOCK · LASERDATA";
+        dom.coldTurns.textContent = String(Math.max(0, proof.turnsCold ?? 4)).padStart(2, "0");
+        dom.warmTurns.textContent = String(Math.max(0, proof.turnsWarm ?? 1)).padStart(2, "0");
+        dom.coldVerdict.textContent = String(proof.verdictCold ?? "—").toUpperCase();
+        dom.warmVerdict.textContent = String(proof.verdictWarm ?? "—").toUpperCase();
+        dom.coldVerdictLabel.textContent = "Cold verdict · no prior graph memory";
+        dom.warmVerdictLabel.textContent = "Warm verdict · 0 questions asked";
+        dom.coldVerdictSubline.textContent = `Only the new event is present · ${formatInt(proof.cold?.seeded?.ingested ?? 1)} edit seeded.`;
+        dom.warmVerdictSubline.textContent = `History closes the real ring · score ${proof.warm?.ring_score ?? "—"}.`;
+        dom.coldTranscript.innerHTML = "<span>AGENT ASKS:</span> Who is this actor? Has this happened before?";
+        dom.warmTranscript.innerHTML = "<span>AGENT PULLS:</span> LaserData NOW + FalkorDB EVER; RocketRide decides, Guild coordinates.";
+        dom.coldRunTime.textContent = `${formatRunTime(proof.cold?.run_time_ms)} ms`;
+        dom.warmRunTime.textContent = `${formatRunTime(proof.warm?.run_time_ms)} ms`;
+        dom.coldRingCount.textContent = formatInt(proof.cold?.ring_count ?? 0);
+        dom.warmRingCount.textContent = formatInt(proof.warm?.ring_count ?? 0);
       }
 
       const agentColors = { watcher: "#4be1f2", analyst: "#bba7ff", commander: "#ffc15c", responder: "#69e6a5", system: "#91a0af" };
@@ -1368,7 +1560,7 @@
       function renderApproval() {
         const pending = approval.status === "pending";
         dom.approvalCard.className = `approval-card ${pending ? "" : `resolved ${approval.status}`}`;
-        dom.approvalLabel.textContent = pending ? "Only human question" : approval.status === "approved" ? "Approved by human" : approval.timedOut ? "Auto-default applied" : "Dismissed by human";
+        dom.approvalLabel.textContent = pending ? "Guild · only human question" : approval.status === "approved" ? "Guild · approved by human" : approval.timedOut ? "Guild · safe default applied" : "Guild · dismissed by human";
         dom.countdown.textContent = pending ? `00:${String(approval.remaining).padStart(2, "0")}` : approval.status === "approved" ? "APPROVED" : "DISMISSED";
         dom.approveButton.disabled = !pending;
         dom.dismissButton.disabled = !pending;
@@ -1614,20 +1806,25 @@
 
       function syncGraphs() {
         graphs.live.setData(state.graph);
-        graphs.warm.setData(state.graph);
-        const cold = coldProjection(state.graph);
+        const hasRealSplit = state.split && state.ablation?.source === "live" && state.ablation?.warmGraph?.nodes?.length;
+        const warm = hasRealSplit ? state.ablation.warmGraph : state.graph;
+        const cold = hasRealSplit ? state.ablation.coldGraph : coldProjection(state.graph);
+        graphs.warm.setData(warm);
         graphs.cold.setData(cold);
         const actualNodes = Number(state.graph.meta?.node_count ?? state.graph.nodes.length);
         const actualEdges = Number(state.graph.meta?.edge_count ?? state.graph.edges.length);
-        if (state.mode === "live") state.offsets.salient = actualNodes;
         dom.liveGraphCount.textContent = `${formatInt(actualNodes)} nodes · ${formatInt(actualEdges)} edges${actualNodes > state.graph.nodes.length ? ` · showing ${state.graph.nodes.length}` : ""}`;
-        dom.coldGraphCount.textContent = `${cold.nodes.length} nodes · ${state.mode === "live" ? "empty-memory projection" : "replaying offset 0"}`;
-        const warmContext = state.ring.ids.length >= 4 ? "3-hop history joined" : "live graph joined";
-        dom.warmGraphCount.textContent = `${formatInt(actualNodes)} nodes · ${warmContext}`;
+        dom.coldGraphCount.textContent = hasRealSplit
+          ? `${formatInt(state.ablation.cold?.seeded?.ingested ?? cold.nodes.length)} edit seeded · no ring`
+          : `${cold.nodes.length} nodes · ${state.mode === "live" ? "waiting for ablation" : "replaying offset 0"}`;
+        dom.warmGraphCount.textContent = hasRealSplit
+          ? `${formatInt(state.ablation.warm?.seeded?.ingested ?? warm.nodes.length)} edits seeded · ${formatInt(warm.nodes.length)} real path nodes`
+          : `${formatInt(actualNodes)} nodes · ${state.ring.ids.length >= 4 ? "3-hop history joined" : "live graph joined"}`;
         renderRingCard();
       }
 
       function formatRunTime(value) {
+        if (value === null || value === undefined || value === "") return "—";
         const number = Number(value);
         if (!Number.isFinite(number)) return "—";
         return number < 10 ? number.toFixed(2) : number.toFixed(1);
@@ -1673,7 +1870,8 @@
       function startRingReveal() {
         ringTimers.forEach(clearTimeout);
         ringTimers = [];
-        const available = new Set(state.graph.nodes.map(n => n.id));
+        const ringGraph = state.split && state.ablation?.source === "live" ? state.ablation.warmGraph : state.graph;
+        const available = new Set((ringGraph?.nodes ?? []).map(n => n.id));
         let ids = (state.ring.ids || []).filter(id => available.has(id));
 
         // HONESTY (HR-1): on the LIVE data plane a ring reveals ONLY when the server returned
@@ -1686,9 +1884,15 @@
             renderRingCard();
             return;
           }
-        } else if (ids.length < 4) {
+        } else if (state.mode === "mock" && ids.length < 4) {
           // MOCK mode only: findThreeHopPath is the explicit, badged mock illustrator.
           ids = findThreeHopPath(state.graph);
+        } else if (state.mode !== "mock") {
+          state.ring.ids = [];
+          state.ringStep = -1;
+          state.ringActive = false;
+          renderRingCard();
+          return;
         }
 
         state.ring.ids = state.mode === "live" ? ids : ids.slice(0, 4);
@@ -1710,12 +1914,18 @@
 
       function toggleSplit(force) {
         state.split = typeof force === "boolean" ? force : !state.split;
+        if (!state.split && state.mode === "live") state.ring = { ids: [], run_time_ms: null, fired: false };
         dom.graphStage.classList.toggle("split", state.split);
         dom.splitButton.classList.toggle("active", state.split);
         dom.splitButton.setAttribute("aria-pressed", String(state.split));
         requestAnimationFrame(() => {
           graphs.live.resize(); graphs.cold.resize(); graphs.warm.resize();
-          if (state.split) startRingReveal();
+          syncGraphs();
+          renderAblation();
+          if (state.split) {
+            if (state.mode === "live") fetchAblation();
+            else startRingReveal();
+          }
         });
       }
 
@@ -1755,6 +1965,7 @@
       renderFeed();
       renderActions();
       renderStats();
+      renderAblation();
       syncGraphs();
       startApproval();
       startRingReveal();
