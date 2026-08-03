@@ -47,8 +47,27 @@ def audit_graph(
     retrieval: Optional[RetrievalResult] = None,
     ingest_report: Optional[Any] = None,
 ) -> GraphAudit:
-    """Inspect graph shape and retrieval stage output without changing state."""
+    """Inspect graph shape and retrieval stage output without changing state.
+
+    Diagnostics must never take down the run that carries them: a failure
+    mid-audit is recorded as an ``audit_failed:`` warning on the partial
+    audit instead of propagating into the arm's retrieve path.
+    """
     audit = GraphAudit(graph_key=g.key)
+    try:
+        _populate(audit, g, retrieval=retrieval, ingest_report=ingest_report)
+    except Exception as exc:
+        audit.warnings.append(f"audit_failed: {type(exc).__name__}: {exc}")
+    return audit
+
+
+def _populate(
+    audit: GraphAudit,
+    g: GraphHandle,
+    *,
+    retrieval: Optional[RetrievalResult],
+    ingest_report: Optional[Any],
+) -> None:
     for label in ("Session", "Turn", "Claim", "Entity"):
         audit.nodes[label] = _count(g, f"MATCH (n:{label}) RETURN count(n)")
     for relation in ("NEXT", "IN_SESSION", "FROM_TURN", "MENTIONS", "RELATES"):
@@ -62,8 +81,13 @@ def audit_graph(
 
     audit.extraction.update(
         {
+            # normalize_predicate() coerces every empty/garbage predicate to
+            # the literal 'unspecified', so that string -- not NULL/'' -- is
+            # the extraction-failure signal that can actually occur.
             "claims_without_predicate": _count(
-                g, "MATCH (c:Claim) WHERE c.predicate IS NULL OR c.predicate = '' RETURN count(c)"
+                g,
+                "MATCH (c:Claim) WHERE c.predicate IS NULL OR c.predicate = ''"
+                " OR c.predicate = 'unspecified' RETURN count(c)",
             ),
             "claims_without_entity": _count(
                 g, "MATCH (c:Claim) WHERE NOT (c)-[:MENTIONS]->(:Entity) RETURN count(c)"
@@ -102,7 +126,6 @@ def audit_graph(
         audit.warnings.append("semantic_entry_returned_no_hits")
     if retrieval is not None and not retrieval.stage_counts.get("s5", 0):
         audit.warnings.append("provenance_hydration_returned_no_hits")
-    return audit
 
 
 __all__ = ["GraphAudit", "audit_graph"]
