@@ -27,12 +27,13 @@ export class GraphClient {
 
   constructor(options: GraphClientOptions = {}) {
     this.url = options.url ?? process.env.FALKORDB_URL ?? "redis://127.0.0.1:6379";
-    // Co-located with the host's domain graph by DEFAULT, because that is what
-    // lets provenance write real :READ/:WROTE edges to the host's own records.
-    // Point AUTH_GRAPH_KEY at a separate graph when the host projects its graph
-    // with an unfiltered `MATCH (n)` — auth nodes would otherwise show up in
-    // its UI and inflate its node counts. See the trade in auth/README.md.
-    this.graphKey = options.graph ?? process.env.AUTH_GRAPH_KEY ?? "memory";
+    // Its OWN key by default, never the warm demo graph: `_h_graph` projects
+    // with an unfiltered `MATCH (n) ... RETURN n` and totals with
+    // `MATCH (n) RETURN count(n)`, so identity nodes living in `palimpsest`
+    // would be drawn in the projector and inflate the on-stage node count.
+    // Co-locating buys cross-graph :READ/:WROTE edges and costs that; see the
+    // trade in auth/README.md before changing it.
+    this.graphKey = options.graph ?? process.env.AUTH_GRAPH_KEY ?? "palimpsest_auth";
     this.prefix = options.prefix ?? process.env.AUTH_LABEL_PREFIX ?? "Auth";
   }
 

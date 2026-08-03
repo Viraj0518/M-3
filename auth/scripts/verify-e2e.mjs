@@ -32,7 +32,10 @@ const PYTHON = resolve(REPO, ".venv/bin/python");
 
 const STAMP = crypto.randomBytes(4).toString("hex");
 const EMAIL = `e2e-${STAMP}@example.com`;
-const PASSWORD = "verify-e2e-2026";
+// Random per run. A fixed literal is harmless against localhost but creates an
+// account with a publicly-known password the moment this is pointed anywhere
+// shared — and the script takes AUTH_BASE_URL from the environment.
+const PASSWORD = `e2e-${crypto.randomBytes(18).toString("base64url")}`;
 const CLIENT_NAME = `bridge-agent-${STAMP}`;
 
 let pass = 0, fail = 0;

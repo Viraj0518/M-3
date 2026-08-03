@@ -259,7 +259,12 @@ def resolve_verified(headers: Optional[Mapping[str, str]]) -> Optional[str]:
     if not claims:
         return None
 
-    selector = claims.get(SELECTOR_CLAIM) or claims.get("azp") or claims.get("sub")
+    # Deliberately NO fallback to `sub`. `azp` is the OAuth CLIENT, which is
+    # the granularity author_agent wants — two clients acting for one human are
+    # two agents. Falling back to `sub` would silently collapse that to the
+    # human and attribute a DoorDash CLI write to "the user", which is a
+    # quieter, worse failure than refusing.
+    selector = claims.get(SELECTOR_CLAIM)
     if not selector or not isinstance(selector, str):
         return None
     return selector
