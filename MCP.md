@@ -7,8 +7,13 @@ your agent gains memory tools it can call directly: remember facts, recall with
 graph expansion, detect coordinated edit-rings, and run the cold-vs-warm ablation.
 
 - **Endpoint:** `https://palimpsest-bridge.fly.dev/mcp` (streamable-HTTP, no auth)
-- Backed by the same FalkorDB the demo uses; graph is a seeded demo corpus,
-  read/write is open (it's a public demo backend — don't store anything private).
+- **The public host is READ-ONLY** (`PALIMPSEST_PUBLIC_MODE=readonly`): reads
+  (`recall` / `ring` / `graph` / `handover_read`) answer normally; every mutating
+  verb — including `remember`, `relate`, and `ablation` — is refused with
+  `PUBLIC_READONLY`. This keeps an anonymous, unauthenticated public endpoint from
+  being a write/DoS target. To run writes and the live `ablation`, use a **local**
+  instance (below).
+- Backed by a seeded demo corpus; nothing private is stored.
 - The Fly machine auto-suspends when idle, so the **first** call may take a few
   seconds to cold-start. No API key required.
 
@@ -28,7 +33,9 @@ graph expansion, detect coordinated edit-rings, and run the cold-vs-warm ablatio
 The single most demo-worthy call is **`palimpsest_ablation`** — it runs the same
 ring query against a warm graph (with history) and a cold graph (event only) and
 returns the **opposite verdict** (escalate vs dismiss). That is the proof that
-memory is load-bearing, callable from inside your MCP host.
+memory is load-bearing, callable from inside your MCP host. Because it drops and
+re-seeds two graphs per call it is a **write**, so it runs on a **local** instance
+(below), not the read-only public host.
 
 ## Connect
 
