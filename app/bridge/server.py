@@ -1827,10 +1827,20 @@ async def dispatch(
     # can set, so a verified token has to outrank it or authentication buys
     # nothing. No token (or a bad one) falls through to the existing ladder
     # unchanged, so this is inert until AUTH_JWKS_URL is set.
-    agent = authmod.resolve_verified(headers) or identity.resolve(
+    verified = authmod.resolve_verified(headers)
+
+    # Verifying alone only adds a way to BE verified; it never REQUIRES it, so
+    # a caller that omits the header entirely can still forge `author_agent`.
+    # Under AUTH_ENFORCE the write path stops accepting a self-declared name.
+    # Both are no-ops unless enforcement is explicitly switched on.
+    refusal = authmod.refuse(verb, verified)
+    if refusal is not None:
+        return err(refusal[0], refusal[1], verb=verb)
+
+    agent = verified or identity.resolve(
         session_id or hdr_session,
         is_stdio=is_stdio,
-        header_selector=hdr_agent,
+        header_selector=None if authmod.suppress_header(verb, verified) else hdr_agent,
     )
 
     ctx = RequestCtx(

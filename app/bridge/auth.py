@@ -71,6 +71,86 @@ SELECTOR_CLAIM: str = os.environ.get("AUTH_SELECTOR_CLAIM", "azp")
 AUTH_HEADER = "authorization"
 
 
+# ── enforcement ─────────────────────────────────────────────────────────────
+#
+# Verifying a token is only half the job. On its own it adds a way to BE
+# verified without ever REQUIRING it: a caller that simply omits the
+# Authorization header still reaches identity.py's ladder and can still name
+# itself via `x-palimpsest-agent`. So the forgery the whole feature exists to
+# stop keeps working, and the logs now say "verified" next to it.
+#
+# Three modes, off by default, because the public judge-facing bridge is
+# deliberately unauthenticated and must not regress:
+#
+#   off        today's behaviour exactly. The header ladder is untouched.
+#   attribute  writes are still ALLOWED without a token, but an unverified
+#              caller cannot CLAIM an identity — the header rung is dropped for
+#              write verbs and the write lands as `unbound`, which is honest.
+#   require    write verbs are REFUSED without a verified token.
+#
+# Reads are never gated in any mode. Gating `graph` or `recall` would break the
+# projector UI, and reading is not the operation that forges attribution.
+ENFORCE: str = os.environ.get("AUTH_ENFORCE", "off").strip().lower()
+
+#: Verbs that mutate the graph, the log, or the outside world.
+#:
+#: Spelled out rather than inferred from the HTTP method: `recall`, `ring` and
+#: `ask` are POSTs that only read, so a method check would gate them and break
+#: the demo — while `act`, the verb that fires real Discord and GitHub side
+#: effects, deserves to be named explicitly rather than caught by a rule.
+WRITE_VERBS = frozenset({
+    "remember",
+    "relate",
+    "act",
+    "handover_write",
+    "stream_publish",
+    "stream_replay",
+})
+
+
+def enforcing() -> bool:
+    """True when enforcement is on AND a verifier is actually configured.
+
+    Both halves matter: `AUTH_ENFORCE=require` with no `AUTH_JWKS_URL` would
+    refuse every write with no possible way to satisfy it, which is a hostage
+    situation rather than a security posture.
+    """
+    return ENFORCE in {"attribute", "require"} and enabled()
+
+
+def is_write(verb: str) -> bool:
+    return verb in WRITE_VERBS
+
+
+def suppress_header(verb: str, verified: Optional[str]) -> bool:
+    """Should identity.py's header rung be withheld for this call?
+
+    Only for unverified writes under enforcement. A verified caller does not
+    need the header, and a read never does harm by using it.
+    """
+    if verified or not enforcing():
+        return False
+    return is_write(verb)
+
+
+def refuse(verb: str, verified: Optional[str]) -> Optional[Tuple[str, str]]:
+    """`(code, message)` when this call must be refused outright, else None.
+
+    Only `require` refuses. `attribute` prefers a landed-but-honest write over
+    a rejection, because an unauthenticated demo that suddenly 403s is a worse
+    failure for this project than a write attributed to `unbound`.
+    """
+    if verified or ENFORCE != "require" or not enabled():
+        return None
+    if not is_write(verb):
+        return None
+    return (
+        "AUTH_REQUIRED",
+        "{0!r} is a write verb and AUTH_ENFORCE=require: present a bearer token "
+        "issued by {1}. Reads are not gated.".format(verb, JWKS_URL or "the auth service"),
+    )
+
+
 def enabled() -> bool:
     """True when a JWKS URL is configured. Everything else is a no-op if not."""
     return bool(JWKS_URL)
@@ -277,6 +357,12 @@ def claims_for(headers: Optional[Mapping[str, str]]) -> Optional[dict]:
 
 __all__ = [
     "AUTH_HEADER",
+    "ENFORCE",
+    "WRITE_VERBS",
+    "enforcing",
+    "is_write",
+    "refuse",
+    "suppress_header",
     "bearer_from",
     "claims_for",
     "enabled",
