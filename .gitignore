@@ -1,6 +1,7 @@
 # secrets — never commit key material
 .env
 .env.*
+!.env.example
 *.key
 credentials*.json
 secrets/
