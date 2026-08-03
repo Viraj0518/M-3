@@ -918,6 +918,175 @@ async def _h_ring(ctx: RequestCtx) -> dict:
     )
 
 
+# ─── ringleader (native graph algorithms a vector store cannot compute) ──────
+
+#: Projects the bipartite ``(:Actor)-[:EDITED]->(:Page)<-[:EDITED]-(:Actor)``
+#: co-edit structure into a weighted unipartite
+#: ``(:Actor)-[:CO_EDITED_WITH]->(:Actor)`` graph — the substrate the native
+#: FalkorDB graph algorithms run on. One canonical directed edge per unordered
+#: pair (``a.name < b.name``); ``weight`` = the number of pages both actors
+#: touched. Idempotent MERGE, so it is safe to re-run on every call, and it
+#: NEVER touches the :EDITED edges the /ring verb reads — the ring beat is
+#: unchanged, this is a purely additive derived layer.
+_COEDIT_PROJECT = (
+    "MATCH (a:Actor)-[:EDITED]->(pg:Page)<-[:EDITED]-(b:Actor) "
+    "WHERE a.name < b.name "
+    "WITH a, b, count(DISTINCT pg) AS shared "
+    "MERGE (a)-[r:CO_EDITED_WITH]->(b) "
+    "SET r.weight = shared"
+)
+
+#: PageRank NAMES the ringleader — the highest structural influence in the
+#: co-edit graph. The positional form is CORRECT for pageRank (verified live);
+#: the map-config requirement below is specific to WCC / labelPropagation /
+#: betweenness, which silently return [] positionally.
+_COEDIT_PAGERANK = (
+    "CALL algo.pageRank('Actor', 'CO_EDITED_WITH') YIELD node, score "
+    "RETURN node.name AS name, score ORDER BY score DESC LIMIT $k"
+)
+_COEDIT_PAGERANK_BASELINE = (
+    "CALL algo.pageRank('Actor', 'CO_EDITED_WITH') YIELD node, score "
+    "RETURN avg(score)"
+)
+
+#: WCC (Weakly Connected Components) AUTO-DISCOVERS the collusion cell: the
+#: connected component the ringleader sits in. Unsupervised — nobody tells it
+#: how many cells exist or who is in them — it recovers EXACTLY the ring and
+#: leaves an unrelated co-edit pair (the bystander) in its own component.
+#: MUST use the MAP-CONFIG form: the positional
+#: ``algo.WCC('Actor','CO_EDITED_WITH')`` silently returns nothing (verified
+#: live), the same trap that bites labelPropagation and betweenness.
+_COEDIT_WCC = (
+    "CALL algo.WCC({nodeLabels: ['Actor'], relationshipTypes: ['CO_EDITED_WITH']}) "
+    "YIELD node, componentId "
+    "RETURN node.name AS name, componentId"
+)
+
+#: Label propagation is the fuzzy-community refinement of the same map-config
+#: form. It is included for transparency, NOT as the load-bearing detector: on a
+#: star/hub cell it is unstable and fragments the hub actor out of its own
+#: community (verified live — it excludes the ringleader), which is precisely why
+#: WCC above is what the demo cites for the cell. Kept in map-config form
+#: (positional returns []).
+_COEDIT_LABELPROP = (
+    "CALL algo.labelPropagation({nodeLabels: ['Actor'], relationshipTypes: ['CO_EDITED_WITH']}) "
+    "YIELD node, communityId "
+    "RETURN node.name AS name, communityId"
+)
+
+
+def _cells_from(rows: List[list], min_size: int = 2) -> List[dict]:
+    """Group ``(name, component/community id)`` rows into non-trivial cells,
+    largest first. A cell of one actor is not a cell — those are the isolated
+    singletons the algorithm correctly leaves alone, and folding them in would
+    bury the signal (the ring) under 150-odd bystanders."""
+    grouped: Dict[Any, List[str]] = {}
+    for name, cid in rows:
+        grouped.setdefault(cid, []).append(name)
+    cells = [
+        {"id": cid, "members": sorted(members), "size": len(members)}
+        for cid, members in grouped.items()
+        if len(members) >= min_size
+    ]
+    cells.sort(key=lambda c: c["size"], reverse=True)
+    return cells
+
+
+async def _h_ringleader(ctx: RequestCtx) -> dict:
+    """NAME the ringleader and AUTO-DISCOVER the collusion cell — pure in-engine
+    graph topology, no LLM, no key, no vector store.
+
+    The /ring verb proves a co-edit ring EXISTS. This verb answers the two
+    questions a vector store fundamentally cannot: WHO is the ringleader, and
+    WHICH actors form the cell — both computed by FalkorDB's own compiled
+    ``algo.*`` procedures over a co-edit projection:
+
+    1. Project ``(:Actor)-[:EDITED]->(:Page)<-[:EDITED]-(:Actor)`` into a
+       weighted ``(:Actor)-[:CO_EDITED_WITH]->(:Actor)`` graph (idempotent).
+    2. ``algo.pageRank`` -> the RINGLEADER (highest structural influence).
+    3. ``algo.WCC`` (map-config) -> the CELL: the ringleader's connected
+       component, recovered unsupervised, with unrelated pairs left out.
+    4. ``algo.labelPropagation`` (map-config) -> the fuzzy-community view, for
+       transparency (unstable on a hub cell; WCC is load-bearing).
+
+    ``run_time_ms`` is the SUM of FalkorDB's OWN measured execution times across
+    every phase — the database's number, not a wall clock — so it can sit on
+    screen next to the ring verb's own run_time_ms.
+    """
+    p = ctx.payload
+    graph_key = _graph_key(ctx)
+    k = _int(p.get("k"), 5, 1, 100)
+
+    await _ensure(graph_key)
+
+    # 1. Project the co-edit graph the algorithms run on (idempotent MERGE).
+    _proj_rows, proj_ms, proj_stats = await asyncio.to_thread(
+        graphstore.mutate, _COEDIT_PROJECT, graph_key=graph_key
+    )
+
+    # 2. PageRank NAMES the ringleader (+ a baseline avg for the "Nx baseline").
+    pr_rows, pr_ms, _h1 = await asyncio.to_thread(
+        graphstore.query, _COEDIT_PAGERANK, {"k": k}, graph_key=graph_key, read_only=True
+    )
+    base_rows, base_ms, _h2 = await asyncio.to_thread(
+        graphstore.query, _COEDIT_PAGERANK_BASELINE, graph_key=graph_key, read_only=True
+    )
+    baseline = float(base_rows[0][0]) if base_rows and base_rows[0][0] is not None else 0.0
+    influence_ranking = [
+        {"name": name, "score": round(float(score), 6)} for name, score in pr_rows
+    ]
+    ringleader: Optional[dict] = None
+    if influence_ranking:
+        top = influence_ranking[0]
+        ringleader = {
+            "name": top["name"],
+            "score": top["score"],
+            "score_vs_baseline": round(top["score"] / baseline, 2) if baseline else None,
+        }
+
+    # 3. WCC AUTO-DISCOVERS the cell (MAP-CONFIG form — positional is silent).
+    wcc_rows, wcc_ms, _h3 = await asyncio.to_thread(
+        graphstore.query, _COEDIT_WCC, graph_key=graph_key, read_only=True
+    )
+    communities = _cells_from(wcc_rows)
+    largest_cell = communities[0] if communities else None
+    if ringleader is not None:
+        name = ringleader["name"]
+        ringleader["cell"] = next(
+            (c["members"] for c in communities if name in c["members"]), []
+        )
+
+    # 4. Label propagation — the fuzzy-community refinement, for transparency.
+    lp_rows, lp_ms, _h4 = await asyncio.to_thread(
+        graphstore.query, _COEDIT_LABELPROP, graph_key=graph_key, read_only=True
+    )
+    label_propagation = _cells_from(lp_rows)
+
+    run_time_ms = round(proj_ms + pr_ms + base_ms + wcc_ms + lp_ms, 6)
+    return ok(
+        ringleader=ringleader,
+        influence_ranking=influence_ranking,
+        communities=communities,
+        cell_count=len(communities),
+        largest_cell=largest_cell,
+        label_propagation=label_propagation,
+        coedit_edges_created=int(proj_stats.get("relationships_created", 0)),
+        method={
+            "ringleader": "algo.pageRank",
+            "cell": "algo.WCC (map-config)",
+            "refinement": "algo.labelPropagation (map-config)",
+        },
+        run_time_ms=run_time_ms,
+        timings={
+            "projection": round(proj_ms, 6),
+            "pageRank": round(pr_ms + base_ms, 6),
+            "wcc": round(wcc_ms, 6),
+            "labelPropagation": round(lp_ms, 6),
+        },
+        graph_key=graph_key,
+    )
+
+
 # ─── ablation (the opposite-verdict proof) ───────────────────────────────────
 
 async def _h_ablation(ctx: RequestCtx) -> dict:
@@ -1411,6 +1580,7 @@ _VERB_DISPATCH: Dict[str, Tuple[str, str, Builder, Handler]] = {
     "relate": ("POST", "/v1/relate", _passthrough, _h_relate),
     "recall": ("POST", "/v1/recall", _passthrough, _h_recall),
     "ring": ("POST", "/v1/ring", _passthrough, _h_ring),
+    "ringleader": ("POST", "/v1/ringleader", _passthrough, _h_ringleader),
     "ablation": ("GET", "/v1/ablation", _passthrough, _h_ablation),
     "graph": ("GET", "/v1/graph", _passthrough, _h_graph),
     # ── stream ──────────────────────────────────────────────────────────────
@@ -1637,6 +1807,38 @@ def _tools() -> List[Tool]:
                     "since": {"type": "number", "description": "Lower ts bound (epoch seconds)."},
                     "until": {"type": "number", "description": "Upper ts bound (epoch seconds)."},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+                    "graph": _GRAPH,
+                },
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name=tool_name("ringleader"),
+            description=(
+                "NAME the ringleader and AUTO-DISCOVER the collusion cell with "
+                "FalkorDB's own compiled graph algorithms — no LLM, no key, no "
+                "vector store. Where /ring proves a co-edit ring EXISTS, this "
+                "answers WHO leads it and WHICH actors form the cell: it "
+                "projects the co-edit graph, runs algo.pageRank to name the "
+                "ringleader (highest structural influence), and algo.WCC to "
+                "recover the ringleader's connected cell unsupervised — leaving "
+                "unrelated bystander pairs in their own component. Returns the "
+                "influence ranking, the discovered cells, and FalkorDB's own "
+                "run_time_ms. This is topology a vector store cannot compute."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "k": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100,
+                        "default": 5,
+                        "description": (
+                            "How many actors to return in the PageRank influence "
+                            "ranking. The top one is the named ringleader."
+                        ),
+                    },
                     "graph": _GRAPH,
                 },
                 "additionalProperties": False,
