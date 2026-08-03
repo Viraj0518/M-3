@@ -12,7 +12,7 @@ primary_region = "sjc"
   # Relative to the build context (the repo root). The CD workflow also passes
   # --dockerfile explicitly, which wins if a flyctl version resolves this
   # differently — belt and suspenders so the path is never ambiguous.
-  dockerfile = "fly/Dockerfile"
+  dockerfile = "Dockerfile"
 
 [env]
   # FalkorDB on loopback INSIDE the container; the bridge binds all interfaces.
