@@ -235,11 +235,12 @@ def test_the_agent_header_selects_the_author(client, graph_key):
 
 @requires_live_db
 def test_path_params_reach_the_verb(client):
+    # stream_tail is now LIVE; the {topic} path param must still reach the verb.
     r = client.get("/v1/stream/{0}/tail".format(config.TOPIC_CASE_OPENED))
     assert r.status_code == 200
     body = r.json()
     assert body["topic"] == config.TOPIC_CASE_OPENED
-    assert body["routing"]["path"] == "/v1/stream/{0}/tail".format(config.TOPIC_CASE_OPENED)
+    assert isinstance(body.get("records"), list)  # real (possibly empty) records
 
 
 def test_a_non_object_json_body_is_a_400(client):
@@ -304,20 +305,21 @@ def test_ring_ids_are_node_ids_the_graph_projection_also_emits(client, graph_key
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# the stream_tail stub — 200, honest, and UI-parseable
+# stream_tail — NOW LIVE against the LaserData spine, 200 + UI-parseable
 # ═══════════════════════════════════════════════════════════════════════════
 
-def test_stream_tail_stub_shape(client):
+def test_stream_tail_is_live_and_ui_parseable(client):
     r = client.get("/stream_tail", params={"limit": 80})
-    assert r.status_code == 200, "a stub is NOT an offline bridge — must be 2xx"
+    assert r.status_code == 200, "a live-or-degraded tail is NOT an offline bridge — must be 2xx"
     body = r.json()
-    assert body["stub"] is True
-    assert body["events"] == []
-    assert body["offset"] is None
-    # and it is still HONEST about not being implemented
-    assert body["ok"] is False
-    assert body["status"] == "not_implemented"
-    assert "STREAM LANE" in body["todo"]
+    # no longer a stub; it never emits the not-implemented envelope
+    assert body.get("stub") is False
+    assert "status" not in body or body.get("status") != "not_implemented"
+    # records/events are real lists (empty when the topic is empty OR laser is
+    # down — the degraded path still returns ok:true so the strip stays live)
+    assert isinstance(body.get("records"), list)
+    assert isinstance(body.get("events"), list)
+    assert body["ok"] is True
 
 
 def test_stream_tail_alias_defaults_the_topic_the_ui_cannot_supply(client):
@@ -326,13 +328,13 @@ def test_stream_tail_alias_defaults_the_topic_the_ui_cannot_supply(client):
     assert rest._UI_ALIASES["stream_tail"][2]["topic"] == config.TOPIC_SIGNAL_RAW
 
 
-def test_the_stub_does_not_feed_the_ui_any_records(client):
+def test_stream_tail_records_are_ui_parseable_lists(client):
     """``flattenRecords`` reads records/events/items/messages IN THAT ORDER.
-    Every list the stub declares must be EMPTY or the strip renders invented
-    traffic."""
+    Whatever the live tail returns, records/events must be LISTS the projector
+    can parse (never a scalar that collapses the parse)."""
     body = client.get("/stream_tail").json()
-    for key in ("records", "events", "items", "messages"):
-        assert body.get(key, []) == []
+    assert isinstance(body.get("records"), list)
+    assert isinstance(body.get("events"), list)
 
 
 def test_status_is_derived_only_from_an_err_code():

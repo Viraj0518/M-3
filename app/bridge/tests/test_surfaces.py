@@ -27,13 +27,16 @@ from app.bridge import server as bridge
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-#: Verbs this lane implemented against FalkorDB.
+#: Verbs implemented against FalkorDB (memory plane) + the now-LIVE stream verbs
+#: wired to the LaserData spine (realtime/ lane).
 LIVE_VERBS = {
     "remember", "relate", "recall", "ring", "graph",
     "handover_write", "handover_read", "ask",
+    "stream_publish", "stream_tail", "stream_replay",
 }
-#: Verbs deliberately left as honest not-implemented envelopes (separate lane).
-STUB_VERBS = {"stream_publish", "stream_tail", "stream_replay", "act"}
+#: Verbs deliberately left as honest not-implemented envelopes. Only `act`
+#: (RocketRide) remains — a separate lane.
+STUB_VERBS = {"act"}
 
 
 # ── the table ───────────────────────────────────────────────────────────────
@@ -43,13 +46,23 @@ def test_table_covers_exactly_the_twelve_verbs():
     assert len(bridge.VERBS) == 12
 
 
-def test_stream_and_act_are_still_honest_stubs():
-    """This lane must NOT have touched the laser/rocketride wiring."""
+def test_act_is_still_an_honest_stub():
+    """The action lane (RocketRide) is separate and must remain an honest stub."""
     for verb in sorted(STUB_VERBS):
         _m, _p, _b, handler = bridge._VERB_DISPATCH[verb]
         assert handler.__name__ == "_h_{0}".format(verb)
         src = handler.__code__
         assert "todo" in handler.__globals__ and src.co_names.count("todo") == 1, verb
+
+
+def test_stream_verbs_are_wired_live_not_stubs():
+    """The three stream verbs now dispatch into the LaserData spine
+    (app/bridge/stream.py), NOT the `todo` envelope."""
+    for verb in ("stream_publish", "stream_tail", "stream_replay"):
+        _m, _p, _b, handler = bridge._VERB_DISPATCH[verb]
+        assert handler.__name__ == "_h_{0}".format(verb)
+        # they reach the live module lazily and never emit a not-implemented todo
+        assert handler.__code__.co_names.count("todo") == 0, verb
 
 
 def test_no_verb_returns_a_ui_unwrap_hijacking_key():

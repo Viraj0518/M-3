@@ -1,0 +1,19 @@
+# PALIMPSEST realtime plane — the LaserData->FalkorDB spine.
+#
+# NEEDS PYTHON >= 3.12 (same as app/bridge). Shares the bridge's deps; install
+# the bridge requirements too, or use the repo-root .venv which already has both.
+#
+#     uv venv --python 3.12 .venv
+#     uv pip install --python .venv/bin/python -r app/bridge/requirements.txt -r realtime/requirements.txt
+
+# The log spine SDK — Log primitive only (publish/consume/replay-from-offset).
+# Pinned days-old; do NOT upgrade mid-sprint.
+laser-sdk==0.0.1
+
+# The edge tap's live SSE reader (Wikimedia EventStreams). Already pulled in by
+# mcp, declared here because realtime/producer.py imports it directly.
+httpx>=0.27,<1
+
+# The memory plane (FalkorDB client) is shared with app/bridge/requirements.txt:
+#   falkordb>=1.0,<2
+# Install app/bridge/requirements.txt alongside this file.

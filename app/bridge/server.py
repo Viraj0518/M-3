@@ -943,14 +943,31 @@ async def _h_graph(ctx: RequestCtx) -> dict:
     )
 
 
+def _topic_from_path(ctx: RequestCtx, *, tail: bool) -> Optional[str]:
+    """The {topic} path segment, resolved off the RESOLVED path (the builder
+    strips `topic` from the body into the path). Falls back to the payload for
+    a direct handler call."""
+    parts = ctx.path.split("/")
+    if tail and len(parts) >= 2:
+        return parts[-2]  # /v1/stream/<topic>/tail  |  /replay
+    if not tail and parts:
+        return parts[-1]  # /v1/stream/<topic>
+    return ctx.payload.get("topic")
+
+
 async def _h_stream_publish(ctx: RequestCtx) -> dict:
-    return todo(
-        ctx,
-        "STREAM LANE. laser topic producer. producer.init() BEFORE the first "
-        "send() or it fails. key=<partition key> so per-key ordering survives "
-        "parallel consumers. Log primitive ONLY — gate anything beyond Log "
-        "behind `await laser.capabilities()`.",
-    )
+    """Append one durable record to a topic. LIVE against the laser log spine
+    (Log primitive only; producer.init() is handled inside realtime.laser_io).
+    """
+    from . import stream as stream_mod  # lazy: keeps server.py py3.9-importable
+
+    topic = _topic_from_path(ctx, tail=False)
+    payload = ctx.payload.get("payload")
+    if payload is None:
+        return err("MISSING_PAYLOAD", "stream_publish requires `payload`")
+    res = await stream_mod.publish(topic, payload, key=ctx.payload.get("key"))
+    res.setdefault("author_agent", ctx.agent)
+    return res
 
 
 async def _h_stream_tail(ctx: RequestCtx) -> dict:
@@ -971,38 +988,46 @@ async def _h_stream_tail(ctx: RequestCtx) -> dict:
     difference between those two is the difference between a stubbed strip and
     a MOCK badge on stage.
     """
-    envelope = todo(
-        ctx,
-        "STREAM LANE. Bounded read of the newest N records. Consumer "
-        "invariants (ported from unblock comms/monitor.py:28-42): "
-        "enqueue-before-ack; dedup on STREAM SEQUENCE not message_id; "
-        "backpressure, never drop; cancellation-safe idempotent teardown.",
-    )
-    # `topic` is a PATH param, so the builder has already stripped it from the
-    # body — read it back off the resolved path rather than the payload.
-    parts = ctx.path.split("/")
-    topic = parts[-2] if len(parts) >= 2 and parts[-1] == "tail" else ctx.payload.get("topic")
-    envelope.update(
-        {
-            "stub": True,
-            "events": [],
-            "records": [],
-            "offset": None,
-            "topic": topic,
-            "limit": ctx.payload.get("limit"),
-        }
-    )
-    return envelope
+    # NOW LIVE (stream lane shipped): real records + real offsets off the log,
+    # with the honest degraded envelope preserved. When the laser spine is
+    # unreachable, `stream.tail` returns ok:true + declared-empty records/offset,
+    # so the projector's stream strip stays live instead of throwing to the mock
+    # graph. Consumer invariants (enqueue-before-ack; dedup on STREAM SEQUENCE
+    # not message_id; backpressure; cancellation-safe teardown) live in
+    # realtime/consumer.py; the bounded-tail read is documented in stream.tail.
+    from . import stream as stream_mod  # lazy: keeps server.py py3.9-importable
+
+    topic = _topic_from_path(ctx, tail=True)
+    limit = _int(ctx.payload.get("limit"), 25, 1, 500)
+    since_offset = ctx.payload.get("since_offset")
+    res = await stream_mod.tail(topic, limit=limit, since_offset=since_offset)
+    res.setdefault("author_agent", ctx.agent)
+    return res
 
 
 async def _h_stream_replay(ctx: RequestCtx) -> dict:
-    return todo(
-        ctx,
-        "STREAM LANE. Replay from an explicit offset (0 = from the beginning) "
-        "— this is the rewind A/B, which is NEVER cut. Same code path as the "
-        "live tail, and the same path a --source file://demo/seed_replay.ndjson "
-        "run drives, so conference wifi is never on the critical path.",
+    """THE REWIND — replay a topic from offset 0 and re-derive the graph into a
+    target key. Log primitive only. NEVER cut (GOAL victory condition 1).
+
+    ``target_graph`` re-derives the whole graph from the durable log (the A/B);
+    omit it to fetch the replayed records. Same code path a
+    ``--source file://demo/seed_replay.ndjson`` producer run feeds, so conference
+    wifi is never on the critical path.
+    """
+    from . import stream as stream_mod  # lazy
+
+    topic = _topic_from_path(ctx, tail=True)
+    from_offset = _int(ctx.payload.get("from_offset"), 0, 0, _MAX_TS)
+    target_graph = ctx.payload.get("target_graph")
+    res = await stream_mod.stream_replay(
+        topic,
+        from_offset=from_offset,
+        target_graph=target_graph,
+        embedder_kind=ctx.payload.get("embedder_kind", "test"),
+        use_gate=bool(ctx.payload.get("use_gate", True)),
     )
+    res.setdefault("author_agent", ctx.agent)
+    return res
 
 
 async def _h_act(ctx: RequestCtx) -> dict:
