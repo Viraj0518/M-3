@@ -25,6 +25,23 @@ make test                         # free — 103 unit tests, judges on canned re
 make eval-smoke-dry               # free — A1 vs A3 over smoke-30, zero API calls
 ```
 
+### Extraction and retrieval audit
+
+PALIMPSEST rows now include a `diagnostics.graph_audit` payload. It separates
+extraction health from retrieval health: node/edge counts, claims missing a
+predicate, entity, or source turn, ingest empty-extraction counts, stage hit
+counts, returned-set size, and explicit warnings such as
+`semantic_entry_returned_no_hits`. This makes a wrong answer debuggable as an
+extraction miss, a graph-link miss, or a retrieval-stage miss instead of
+collapsing all three into one QA score.
+
+The audit is read-only and does not alter ranking or scoring. Run the existing
+dry smoke command, then inspect `rows.jsonl` under the emitted run directory:
+
+```bash
+jq '.diagnostics.graph_audit' eval/runs/<run-id>/rows.jsonl
+```
+
 Everything above runs **without any API key**. See *What is proven* below for
 exactly what that does and does not establish.
 
