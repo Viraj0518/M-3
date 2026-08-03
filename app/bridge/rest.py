@@ -68,6 +68,7 @@ from starlette.staticfiles import StaticFiles
 from memory import config
 
 from . import graphstore
+from . import guard
 from . import server as bridge
 
 # ─── MCP streamable-http, guarded exactly like the SDK import in server.py ───
@@ -107,6 +108,13 @@ _STATUS_BY_CODE: Dict[str, int] = {
     "NODE_NOT_FOUND": 404,
     "HANDOVER_WRITE_FAILED": 500,
     "HANDLER_ERROR": 500,
+    # The public-exposure guard (app/bridge/guard.py), which is inert unless
+    # PALIMPSEST_PUBLIC_MODE is set. 403 rather than 401: there is no credential
+    # that would make the call succeed, so "unauthorized" would be a lie and a
+    # client that retries with a token would loop. The projector is unaffected
+    # in `readonly` mode — /graph, /ring and /stream_tail are all reads.
+    "PUBLIC_READONLY": 403,
+    "PUBLIC_CLOSED": 403,
 }
 
 #: LaserData's HTTP port on the local stack. A TCP connect is the whole probe —
@@ -417,6 +425,10 @@ def create_app() -> FastAPI:
             "falkordb": falkordb,
             "laser": laser,
             "mcp": app.state.mcp,
+            # Read on EVERY health poll, not cached at boot: the whole value of
+            # reporting the posture is that a third party pointing an MCP client
+            # at this URL can see whether writes will be accepted, right now.
+            "public_mode": guard.describe(),
             "graphs": {"warm": config.GRAPH_WARM, "cold": config.GRAPH_COLD},
         }
         if falkordb["reachable"]:
@@ -494,6 +506,7 @@ def create_app() -> FastAPI:
                 "health": "/health",
                 "openapi": "/v1/openapi.json",
                 "mcp": app.state.mcp,
+                "public_mode": guard.describe(),
                 "verbs": {
                     verb: {"method": m, "path": p}
                     for verb, (m, p, _b, _h) in bridge._VERB_DISPATCH.items()
