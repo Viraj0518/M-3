@@ -229,7 +229,7 @@
     .panel-title { margin: 0; font-size: clamp(18px, 1.2vw, 23px); font-weight: 780; letter-spacing: 0; }
     .panel-meta { margin-left: auto; color: var(--muted); font: 600 11px/1 var(--mono); letter-spacing: .02em; }
 
-    .graph-shell { display: grid; grid-template-rows: 56px minmax(0, 1fr); }
+    .graph-shell { display: grid; grid-template-rows: 56px minmax(0, 1fr) auto; }
 
     .graph-legend { display: flex; align-items: center; gap: 14px; margin-left: auto; }
     .legend-item { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
@@ -417,6 +417,39 @@
     .graph-stage.split .transcript { margin-top: 10px; color: #cdd7de; font-size: clamp(11px, .86vw, 14px); }
     .transcript span { color: #667583; }
 
+    .ringleader-panel {
+      min-height: 174px;
+      display: grid;
+      grid-template-columns: minmax(230px, .78fr) minmax(260px, .75fr) minmax(300px, 1.25fr);
+      gap: 22px;
+      align-items: center;
+      padding: 16px 20px;
+      border-top: 1px solid #2d8491;
+      background:
+        radial-gradient(circle at 14% 30%, rgba(75, 225, 242, .12), transparent 32%),
+        linear-gradient(110deg, rgba(9, 28, 34, .97), rgba(9, 14, 20, .98) 50%, rgba(20, 16, 35, .96));
+      box-shadow: inset 0 1px 0 rgba(75, 225, 242, .08);
+    }
+
+    .ringleader-kicker { display: flex; align-items: center; gap: 10px; color: var(--cyan); font: 850 11px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase; }
+    .ringleader-badge { height: 26px; padding: 0 9px; font-size: 9px; }
+    .ringleader-signal { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; margin-top: 9px; }
+    .ringleader-name { min-width: 0; overflow: hidden; color: #f5feff; font: 880 clamp(29px, 2.45vw, 46px)/.94 var(--sans); letter-spacing: -.035em; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 0 28px rgba(75, 225, 242, .18); }
+    .ringleader-baseline { flex: 0 0 auto; color: var(--cyan); font: 850 clamp(22px, 1.65vw, 32px)/1 var(--mono); letter-spacing: -.045em; white-space: nowrap; }
+    .ringleader-cell { min-width: 0; padding-left: 18px; border-left: 1px solid rgba(75, 225, 242, .25); }
+    .ringleader-label { color: #91a8b4; font: 800 9px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; }
+    .ringleader-members { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+    .ringleader-member { padding: 6px 8px; border: 1px solid rgba(187, 167, 255, .38); border-radius: 5px; background: rgba(41, 35, 69, .6); color: #eee9ff; font: 760 11px/1 var(--mono); white-space: nowrap; }
+    .ringleader-runtime { margin-top: 10px; color: #b9c7cf; font: 720 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .ringleader-runtime strong { color: #fff; font-size: 14px; }
+    .ringleader-thesis { margin: 0; color: #e0e8ed; font-size: clamp(13px, .92vw, 17px); font-weight: 670; line-height: 1.34; }
+    .ringleader-thesis strong { color: #fff; font-weight: 860; }
+    .ringleader-thesis em { color: var(--cyan); font-style: normal; font-weight: 850; }
+    .ringleader-panel.disconnected .ringleader-name,
+    .ringleader-panel.disconnected .ringleader-baseline,
+    .ringleader-panel.disconnected .ringleader-members,
+    .ringleader-panel.disconnected .ringleader-runtime { color: #ffc6c9; opacity: .74; }
+
     .right-rail { min-height: 0; display: grid; grid-template-rows: minmax(0, .92fr) minmax(0, 1.08fr); gap: 11px; }
 
     .agent-panel { display: grid; grid-template-rows: 56px auto minmax(0, 1fr); }
@@ -587,6 +620,8 @@
       .ablation-input { width: min(630px, calc(100% - 44px)); }
       .ablation-input small { display: none; }
       .handover-chip small { display: none; }
+      .ringleader-panel { grid-template-columns: minmax(225px, .78fr) minmax(230px, .72fr) minmax(280px, 1.12fr); gap: 15px; padding-inline: 15px; }
+      .ringleader-cell { padding-left: 13px; }
     }
 
     @media (max-width: 1050px) {
@@ -610,7 +645,7 @@
       .workspace { gap: 9px; padding: 9px; }
       .right-rail { gap: 9px; grid-template-rows: minmax(0, .82fr) minmax(0, 1.18fr); }
       .panel-heading { height: 48px; padding: 0 12px; }
-      .graph-shell { grid-template-rows: 48px minmax(0, 1fr); }
+      .graph-shell { grid-template-rows: 48px minmax(0, 1fr) auto; }
       .agent-panel { grid-template-rows: 48px auto minmax(0, 1fr); }
       .case-panel { grid-template-rows: 48px minmax(0, 1fr); }
       .handover-map { gap: 6px; padding: 7px; }
@@ -634,6 +669,12 @@
       .bottom-strip { margin: 0 9px 8px; }
       .strip-block { padding: 0 12px; }
       .offsets { gap: 10px; }
+      .ringleader-panel { min-height: 136px; padding-block: 10px; }
+      .ringleader-name { font-size: 28px; }
+      .ringleader-baseline { font-size: 20px; }
+      .ringleader-thesis { font-size: 12px; line-height: 1.28; }
+      .ringleader-member { padding: 5px 6px; font-size: 9px; }
+      .ringleader-runtime { margin-top: 7px; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -737,6 +778,29 @@
             </div>
           </div>
         </div>
+
+        <section id="ringleaderPanel" class="ringleader-panel" aria-labelledby="ringleaderTitle" aria-live="polite">
+          <div>
+            <div class="ringleader-kicker">
+              <span id="ringleaderTitle">RINGLEADER · PageRank</span>
+              <span id="ringleaderBadge" class="connection-badge ringleader-badge"><span class="status-dot"></span><span id="ringleaderMode">MOCK</span></span>
+            </div>
+            <div class="ringleader-signal">
+              <strong id="ringleaderName" class="ringleader-name">VectorMint</strong>
+              <span id="ringleaderBaseline" class="ringleader-baseline">1.72x baseline</span>
+            </div>
+          </div>
+          <div class="ringleader-cell">
+            <div class="ringleader-label">Discovered cell · WCC</div>
+            <div id="ringleaderMembers" class="ringleader-members">
+              <span class="ringleader-member">Northstar-7</span>
+              <span class="ringleader-member">SableWeather</span>
+              <span class="ringleader-member">VectorMint</span>
+            </div>
+            <div class="ringleader-runtime">FalkorDB computed in <strong id="ringleaderRuntime">10.47 ms</strong></div>
+          </div>
+          <p class="ringleader-thesis">FalkorDB doesn't just prove a ring <strong>EXISTS</strong> — it <em>COMPUTES who runs it</em> (PageRank centrality) and <em>DISCOVERS the cell itself</em> (WCC community detection) in ~10ms. A vector store has no notion of centrality or a community.</p>
+        </section>
       </section>
 
       <aside class="right-rail">
@@ -841,6 +905,8 @@
       // HR-4  In LIVE, fired-action rows come only from real action.executed records with a URL;
       //       bundled MOCK actions + "side effects fired" claims are MOCK-only.
       // HR-5  MOCK is always badged MOCK. Fake data is fine iff the screen says it is fake.
+      // HR-6  LIVE ringleader fields come ONLY from POST /v1/ringleader. Failure or an absent
+      //       ringleader renders DISCONNECTED; bundled VectorMint data is MOCK-only.
       // ──────────────────────────────────────────────────────────────────────────────
       const params = new URLSearchParams(location.search);
       const IS_STATIC_HOST = location.protocol === "https:" && location.hostname.endsWith(".pages.dev");
@@ -948,6 +1014,13 @@
         ring: clone(mockRing)
       };
 
+      const mockRingleader = {
+        source: "mock",
+        ringleader: { name: "VectorMint", score: .197079, score_vs_baseline: 1.72 },
+        members: ["Northstar-7", "SableWeather", "VectorMint"],
+        run_time_ms: 10.47
+      };
+
       const mockFeed = [
         feed("11:42:06", "watcher", "signal", "LaserData offset 41,208 received; edit is novel."),
         feed("11:42:06", "watcher", "handoff", "watcher <span class=\"handoff-arrow\">→</span> commander · case.opened P-2048"),
@@ -973,6 +1046,9 @@
         ablation: clone(mockAblation),
         ablationStatus: "ready",
         ablationLoading: false,
+        ringleader: clone(mockRingleader),
+        ringleaderStatus: "ready",
+        ringleaderLoading: false,
         split: true,
         feed: clone(mockFeed),
         actions: clone(mockActions),
@@ -1004,7 +1080,10 @@
         coldVerdictLabel: el("coldVerdictLabel"), warmVerdictLabel: el("warmVerdictLabel"),
         coldVerdictSubline: el("coldVerdictSubline"), warmVerdictSubline: el("warmVerdictSubline"),
         coldTranscript: el("coldTranscript"), warmTranscript: el("warmTranscript"),
-        coldRunTime: el("coldRunTime"), warmRunTime: el("warmRunTime"), coldRingCount: el("coldRingCount"), warmRingCount: el("warmRingCount")
+        coldRunTime: el("coldRunTime"), warmRunTime: el("warmRunTime"), coldRingCount: el("coldRingCount"), warmRingCount: el("warmRingCount"),
+        ringleaderPanel: el("ringleaderPanel"), ringleaderBadge: el("ringleaderBadge"), ringleaderMode: el("ringleaderMode"),
+        ringleaderName: el("ringleaderName"), ringleaderBaseline: el("ringleaderBaseline"),
+        ringleaderMembers: el("ringleaderMembers"), ringleaderRuntime: el("ringleaderRuntime")
       };
 
       function node(id, type, label, properties = {}) { return { id, type, label, labels: [type], properties }; }
@@ -1141,6 +1220,34 @@
         };
       }
 
+      function normalizeRingleader(payload) {
+        const root = payload?.result ?? payload?.data ?? payload;
+        const leader = root?.ringleader && typeof root.ringleader === "object" ? root.ringleader : null;
+        const name = typeof leader?.name === "string" ? leader.name.trim() : "";
+        if (!name) throw new Error("RINGLEADER_CONTRACT");
+
+        const communities = Array.isArray(root?.communities) ? root.communities : [];
+        const largest = communities.reduce((best, community) => {
+          const members = Array.isArray(community?.members) ? community.members : [];
+          const sizeRaw = community?.size;
+          const size = sizeRaw !== null && sizeRaw !== undefined && sizeRaw !== "" && Number.isFinite(Number(sizeRaw))
+            ? Number(sizeRaw)
+            : members.length;
+          return size > (best?.size ?? -1) ? { members, size } : best;
+        }, null);
+        const members = (largest?.members ?? []).map(member => String(member)).filter(Boolean);
+        const baselineRaw = leader.score_vs_baseline;
+        const runTimeRaw = root?.run_time_ms;
+        const baseline = baselineRaw === null || baselineRaw === undefined || baselineRaw === "" ? NaN : Number(baselineRaw);
+        const runTime = runTimeRaw === null || runTimeRaw === undefined || runTimeRaw === "" ? NaN : Number(runTimeRaw);
+        return {
+          source: "live",
+          ringleader: { name, score_vs_baseline: Number.isFinite(baseline) ? baseline : null },
+          members,
+          run_time_ms: Number.isFinite(runTime) ? runTime : null
+        };
+      }
+
       // MOCK-mode ring illustrator ONLY (HR-1). Must never be reached when state.mode === "live".
       function findThreeHopPath(graph) {
         const adjacency = new Map(graph.nodes.map(n => [n.id, []]));
@@ -1265,11 +1372,16 @@
         return date.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
       }
 
-      async function fetchJson(path, timeoutMs = 1100) {
+      async function fetchJson(path, timeoutMs = 1100, options = {}) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), timeoutMs);
         try {
-          const response = await fetch(`${BRIDGE}${path}`, { cache: "no-store", headers: { Accept: "application/json" }, signal: controller.signal });
+          const response = await fetch(`${BRIDGE}${path}`, {
+            cache: "no-store",
+            ...options,
+            headers: { Accept: "application/json", ...(options.headers ?? {}) },
+            signal: controller.signal
+          });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const payload = await response.json();
           if (path === "/graph" && isErrPayload(payload)) throw new Error(payload.code ?? payload.err?.code ?? "BRIDGE_ERR");
@@ -1285,9 +1397,36 @@
         if (!state.everLive) return;
         state.mode = "disconnected";
         state.ablationStatus = reason || "bridge unreachable";
+        state.ringleaderStatus = "disconnected";
         stopRing();
         renderAblation();
+        renderRingleader();
         renderConnection();
+      }
+
+      async function fetchRingleader() {
+        if (!BRIDGE || state.mode !== "live" || state.ringleaderLoading || state.ringleaderStatus === "ready") return;
+        state.ringleaderLoading = true;
+        state.ringleaderStatus = "loading";
+        state.ringleader = null;
+        renderRingleader();
+        try {
+          const payload = await fetchJson("/v1/ringleader", 15000, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{}"
+          });
+          if (isErrPayload(payload)) throw new Error("RINGLEADER_ERR");
+          state.ringleader = normalizeRingleader(payload);
+          state.ringleaderStatus = "ready";
+        } catch (_) {
+          // Panel-local hard failure: never substitute the bundled MOCK leader while LIVE.
+          state.ringleader = null;
+          state.ringleaderStatus = "disconnected";
+        } finally {
+          state.ringleaderLoading = false;
+          renderRingleader();
+        }
       }
 
       async function fetchAblation() {
@@ -1354,8 +1493,11 @@
             state.spineSeen = false;
             state.ablation = null;
             state.ablationStatus = "waiting for real ablation";
+            state.ringleader = null;
+            state.ringleaderStatus = "waiting";
             renderActions();
             renderFeed();
+            renderRingleader();
           }
           if (results[1].status === "fulfilled") applyStream(results[1].value);
           if (state.split && state.ablation?.source === "live") state.ring = state.ablation.ring;
@@ -1368,6 +1510,7 @@
           renderConnection();
           renderStats();
           if (state.split && !state.ablation && !state.ablationLoading) fetchAblation();
+          if (!state.ringleader && !state.ringleaderLoading && state.ringleaderStatus === "waiting") fetchRingleader();
           return;
         }
 
@@ -1385,6 +1528,8 @@
           state.mode = "mock";
           state.graph = clone(mockGraph);
           state.ring = clone(mockRing);
+          state.ringleader = clone(mockRingleader);
+          state.ringleaderStatus = "ready";
           state.feed = clone(mockFeed);
           state.actions = clone(mockActions);
           state.offsets = { raw: 41208, salient: 912, lag: 0, rejected: 97 };
@@ -1393,6 +1538,7 @@
           renderFeed();
           renderActions();
           renderStats();
+          renderRingleader();
         }
         renderConnection();
       }
@@ -1494,6 +1640,39 @@
         dom.warmRunTime.textContent = `${formatRunTime(proof.warm?.run_time_ms)} ms`;
         dom.coldRingCount.textContent = formatInt(proof.cold?.ring_count ?? 0);
         dom.warmRingCount.textContent = formatInt(proof.warm?.ring_count ?? 0);
+      }
+
+      function renderRingleader() {
+        const proof = state.ringleader;
+        const isMock = state.mode === "mock";
+        const isDisconnected = state.mode === "disconnected" || state.ringleaderStatus === "disconnected";
+        const isReady = Boolean(proof && (isMock ? proof.source === "mock" : proof.source === "live"));
+
+        dom.ringleaderPanel.classList.toggle("disconnected", isDisconnected);
+        dom.ringleaderBadge.className = `connection-badge ringleader-badge ${isDisconnected ? "stale" : isMock ? "" : "live"}`;
+        dom.ringleaderMode.textContent = isDisconnected ? "DISCONNECTED · FROZEN" : isMock ? "MOCK" : isReady ? "LIVE · VERIFIED" : "LIVE · COMPUTING";
+
+        if (!isReady) {
+          dom.ringleaderName.textContent = isDisconnected ? "DISCONNECTED" : "—";
+          dom.ringleaderBaseline.textContent = "—";
+          dom.ringleaderMembers.replaceChildren();
+          dom.ringleaderRuntime.textContent = "— ms";
+          return;
+        }
+
+        dom.ringleaderName.textContent = proof.ringleader.name;
+        const baseline = proof.ringleader.score_vs_baseline;
+        dom.ringleaderBaseline.textContent = Number.isFinite(baseline) ? `${baseline.toFixed(2)}x baseline` : "—";
+        dom.ringleaderMembers.replaceChildren(...proof.members.map(member => {
+          const chip = document.createElement("span");
+          chip.className = "ringleader-member";
+          chip.textContent = member;
+          return chip;
+        }));
+        const runTime = proof.run_time_ms;
+        dom.ringleaderRuntime.textContent = Number.isFinite(runTime)
+          ? `${runTime.toLocaleString("en-US", { maximumFractionDigits: 2 })} ms`
+          : "— ms";
       }
 
       const agentColors = { watcher: "#4be1f2", analyst: "#bba7ff", commander: "#ffc15c", responder: "#69e6a5", system: "#91a0af" };
@@ -1966,6 +2145,7 @@
       renderActions();
       renderStats();
       renderAblation();
+      renderRingleader();
       syncGraphs();
       startApproval();
       startRingReveal();
