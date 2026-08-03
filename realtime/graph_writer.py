@@ -134,7 +134,18 @@ class GraphWriter:
         self.deltas: List[Dict[str, Any]] = []
         graphstore.ensure_indexes(self.graph_key)
 
-    async def write(self, raw: Dict[str, Any], *, offset: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    async def write(
+        self,
+        raw: Dict[str, Any],
+        *,
+        offset: Optional[int] = None,
+        headers: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """MERGE one event. ``headers`` is the record's out-of-band attribution
+        (``rec['headers']`` from ``laser_io.normalize_record``): when it carries an
+        ``author_agent`` that stamps the node/edge instead of this writer's
+        default, so provenance rides the log record rather than being re-derived
+        from the body. ``headers=None`` (the current pipeline call) is unchanged."""
         self.stats.ingested += 1
         mapped = map_event(raw, offset=offset)
         if mapped is None:
@@ -159,14 +170,31 @@ class GraphWriter:
             embedding = self.gate.embed(mapped.summary)
 
         self.stats.admitted += 1
-        delta = self._merge(mapped, embedding)
+        delta = self._merge(mapped, embedding, author=self._resolve_author(headers))
         self.deltas.append(delta)
         if self.log is not None and self.emit_topic:
             await self.log.publish(self.emit_topic, delta, key=mapped.wiki)
         return delta
 
-    def _merge(self, m: MappedEvent, embedding: Optional[List[float]]) -> Dict[str, Any]:
-        author = self.author_agent
+    def _resolve_author(self, headers: Optional[Dict[str, Any]]) -> str:
+        """Prefer an ``author_agent`` carried on the record HEADERS (out-of-band
+        attribution) over this writer's default. Falls back to
+        ``self.author_agent`` when no header is present, so the existing pipeline
+        call path (which passes no headers) stamps exactly as before."""
+        if headers:
+            a = headers.get("author_agent")
+            if a:
+                return str(a)
+        return self.author_agent
+
+    def _merge(
+        self,
+        m: MappedEvent,
+        embedding: Optional[List[float]],
+        *,
+        author: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        author = author if author is not None else self.author_agent
         params: Dict[str, Any] = {
             "wiki": m.wiki,
             "actor": m.actor,

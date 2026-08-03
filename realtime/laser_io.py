@@ -112,6 +112,21 @@ def normalize_record(rec: Any) -> Dict[str, Any]:
         "seq": (partition, offset),
         "current_offset": current,
         "message_id": message_id,
+        # ── the richer log coordinate (verified present on a live ConsumerMessage)
+        # ``timestamp_micros``        = the broker APPEND time (the log's own clock).
+        # ``origin_timestamp_micros`` = the PRODUCER/event time; the difference
+        #     ``timestamp_micros - origin_timestamp_micros`` is the real end-to-end
+        #     lag the UI's lag strip shows — not a fabricated number.
+        # ``checksum``    = the record CRC, so the replay ablation can assert BYTE
+        #     parity (same log coordinate -> same checksum), not just topology.
+        # ``headers`` / ``header_kinds`` = out-of-band attribution (author_agent,
+        #     case_id) carried beside the JSON body. ``getattr`` defaults keep this
+        #     safe on the invariant-test fakes, which expose none of these.
+        "timestamp_micros": getattr(rec, "timestamp_micros", None),
+        "origin_timestamp_micros": getattr(rec, "origin_timestamp_micros", None),
+        "checksum": getattr(rec, "checksum", None),
+        "headers": getattr(rec, "headers", None),
+        "header_kinds": getattr(rec, "header_kinds", None),
     }
     try:
         out["value"] = rec.json()
@@ -238,15 +253,31 @@ class LaserLog:
         self._producers[topic_name] = prod
         return prod
 
-    async def publish(self, topic_name: str, value: Any, *, key: Optional[str] = None) -> None:
+    async def publish(
+        self,
+        topic_name: str,
+        value: Any,
+        *,
+        key: Optional[str] = None,
+        headers: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Append ONE durable record. ``value`` is JSON-encoded to bytes because
         Producer.send rejects a dict (InvalidError, verified). ``key`` selects
         the partition, so same-key records keep their relative order across
-        parallel consumers (key=wiki in the edge tap)."""
+        parallel consumers (key=wiki in the edge tap).
+
+        ``headers`` (verified accepted by ``Producer.send(headers=...)``) carry
+        OUT-OF-BAND attribution — ``author_agent`` / ``case_id`` — beside the JSON
+        body, so a consumer can stamp provenance from ``rec['headers']`` without
+        re-parsing the payload. The kwarg is only forwarded when non-empty, so the
+        no-header call path (and its contract fake) is unchanged."""
         prod = await self.producer(topic_name)
         payload = value if isinstance(value, (bytes, bytearray)) else json.dumps(value, default=str).encode("utf-8")
         routing_key = key.encode("utf-8") if isinstance(key, str) else key
-        await _aw(prod.send(payload, key=routing_key))
+        if headers:
+            await _aw(prod.send(payload, key=routing_key, headers=headers))
+        else:
+            await _aw(prod.send(payload, key=routing_key))
 
     # ── consume (group) ─────────────────────────────────────────────────────
     async def consumer_group(
@@ -256,10 +287,18 @@ class LaserLog:
         *,
         polling: str = "first",
         batch_length: int = 200,
+        offset: Optional[int] = None,
+        timestamp_micros: Optional[int] = None,
+        allow_replay: bool = False,
     ) -> Any:
         """A consumer-group reader with ``auto_commit='disabled'`` — commit
         AFTER side effects land (crash-safety beat). ``polling='first'`` starts a
-        fresh group at offset 0 (the whole-history read warm build needs)."""
+        fresh group at offset 0 (the whole-history read warm build needs).
+
+        ``offset`` / ``timestamp_micros`` SERVER-SEEK the group to a log position
+        or a WALL-CLOCK instant (``polling='offset'`` / ``'timestamp'``);
+        ``allow_replay=True`` lets it read history that precedes any committed
+        cursor. All are passthroughs to the underlying ``Topic.consumer_group``."""
         t = await self.topic(topic_name)
         cg = await _aw(
             t.consumer_group(
@@ -267,6 +306,9 @@ class LaserLog:
                 polling=polling,
                 auto_commit="disabled",
                 batch_length=batch_length,
+                offset=offset,
+                timestamp_micros=timestamp_micros,
+                allow_replay=allow_replay,
             )
         )
         await _aw(cg.init())
@@ -280,12 +322,20 @@ class LaserLog:
         *,
         polling: str = "first",
         batch_length: int = 200,
+        offset: Optional[int] = None,
+        timestamp_micros: Optional[int] = None,
+        allow_replay: bool = False,
     ) -> Any:
         """A single-PARTITION consumer with ``auto_commit='disabled'``. Verified
         in-session: a consumer-GROUP with one member is assigned only partition
         0, so reading a 4-partition topic completely requires one consumer per
         partition (the design's 'one partition per member'). ``consumer.py``'s
-        fan-in composes these into one complete reader."""
+        fan-in composes these into one complete reader.
+
+        ``offset`` / ``timestamp_micros`` SERVER-SEEK this partition to a log
+        position or a WALL-CLOCK instant; ``allow_replay=True`` permits reading
+        history behind the committed cursor. All are passthroughs to
+        ``Topic.consumer``."""
         t = await self.topic(topic_name)
         c = await _aw(
             t.consumer(
@@ -294,6 +344,9 @@ class LaserLog:
                 polling=polling,
                 auto_commit="disabled",
                 batch_length=batch_length,
+                offset=offset,
+                timestamp_micros=timestamp_micros,
+                allow_replay=allow_replay,
             )
         )
         await _aw(c.init())
@@ -312,6 +365,87 @@ class LaserLog:
             await self.partition_consumer(topic_name, "{0}-p{1}".format(name, p), p, polling=polling)
             for p in range(partitions)
         ]
+
+    # ── seek-capable single consumer (the live tail + the wall-clock scrub) ──
+    async def consumer(
+        self,
+        topic_name: str,
+        name: str,
+        *,
+        partition: int = 0,
+        polling: str = "next",
+        batch_length: int = 200,
+        offset: Optional[int] = None,
+        timestamp_micros: Optional[int] = None,
+        allow_replay: bool = False,
+        auto_commit: str = "disabled",
+    ) -> Any:
+        """A single-partition ``Consumer`` with FULL seek control, initialised.
+
+        This is the primitive under the LIVE TAIL (``polling='last'`` backfills
+        the newest ``batch_length`` records — verified: it returns the window
+        ending at the partition's ``current_offset``, i.e. the live edge) and the
+        SEEK-BASED replay (``polling='offset'`` with ``offset=N``, or
+        ``polling='timestamp'`` with ``timestamp_micros=T`` — the ONLY way to seek
+        by WALL-CLOCK, since ``Topic.replay`` carries a per-partition offset dict
+        and no timestamp cursor).
+
+        ``auto_commit`` is DISABLED by default: a tail / scrub read must never
+        advance a durable cursor, which is what makes a repeated ``polling='last'``
+        poll idempotent (verified: two opens return the identical window). Pass
+        ``allow_replay=True`` alongside a timestamp/offset seek to read history
+        that precedes the consumer's committed position."""
+        t = await self.topic(topic_name)
+        c = await _aw(
+            t.consumer(
+                name,
+                partition=partition,
+                polling=polling,
+                auto_commit=auto_commit,
+                batch_length=batch_length,
+                offset=offset,
+                timestamp_micros=timestamp_micros,
+                allow_replay=allow_replay,
+            )
+        )
+        await _aw(c.init())
+        return c
+
+    @staticmethod
+    async def drain_consumer(
+        consumer: Any, *, max_records: int, idle_timeout: float = 1.5
+    ) -> List[Dict[str, Any]]:
+        """Pull up to ``max_records`` normalized records from a single-partition
+        ``Consumer`` via ``next()``, stopping early when the partition goes idle
+        (no record within ``idle_timeout``).
+
+        A ``Consumer`` exposes ``next()`` (one record at a time), NOT the replay
+        cursor's ``poll()`` — so a ``polling='last'`` backfill or a seek window is
+        drained one record at a time. The idle timeout bounds a partition that
+        holds fewer than ``max_records``: after the backfill is exhausted the next
+        ``next()`` would block waiting for a NEW append, so we stop instead."""
+        out: List[Dict[str, Any]] = []
+        for _ in range(max_records):
+            try:
+                msg = await asyncio.wait_for(_aw(consumer.next()), timeout=idle_timeout)
+            except asyncio.TimeoutError:
+                break
+            if msg is None:
+                break
+            out.append(normalize_record(msg))
+        return out
+
+    @staticmethod
+    async def shutdown_consumer(consumer: Any) -> None:
+        """Best-effort teardown of a Consumer's internal poll task. Verified safe
+        on the shared connection — the cached ``LaserLog`` stays usable after a
+        per-tail consumer is shut down, so a tail/scrub never leaks a poller."""
+        sd = getattr(consumer, "shutdown", None)
+        if callable(sd):
+            try:
+                await _aw(sd())
+            except Exception:  # noqa: BLE001 - teardown is best-effort
+                pass
 
     # ── replay (from an offset) ─────────────────────────────────────────────
     async def replay_all(self, topic_name: str) -> Any:
