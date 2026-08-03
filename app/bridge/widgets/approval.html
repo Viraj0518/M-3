@@ -1,0 +1,196 @@
+<!doctype html>
+<!--
+  PALIMPSEST — approval decision card (ui://palimpsest/approval-v1)
+
+  MCP Apps bundle. Dependency-free vanilla JS (no CDN — esm.sh's App class is a
+  known renderer killer, ext-apps #671). Renders the `ask` decision card, runs
+  the SAFE-DEFAULT countdown (the field that stops the pitch freezing when nobody
+  taps approve), and reports the human's tap to the model via `ui/message`.
+
+  WHY ui/message AND NOT A FABRICATED tools/call: `_h_ask` is explicit that this
+  verb "never fabricates an approval", and the dispatch table is pinned at 13
+  verbs (no `approve_action` sink to add without breaking the surface tests). So
+  the honest wiring is: the widget REPORTS the human's decision into the model's
+  turn (ui/message); the model then proceeds to `act` on real authority. The
+  documented Tier-1 upgrade is a dedicated app-only `approve_action` verb —
+  deliberately deferred to preserve the pinned table and the no-fabrication
+  invariant. The plain-text card is the fallback for non-widget hosts; in a
+  terminal host the SAME `ask` verb takes the elicitation path instead.
+-->
+<meta charset="utf-8" />
+<style>
+  :root {
+    --fg: var(--color-text-primary, #10131a);
+    --fg-dim: var(--color-text-secondary, #5b6472);
+    --bg: var(--color-background-primary, #ffffff);
+    --panel: var(--color-background-secondary, #f4f6fa);
+    --line: var(--color-border-primary, #e2e6ee);
+    --accent: var(--color-accent-primary, #3b6ef5);
+    --accent-fg: var(--color-accent-foreground, #ffffff);
+    --warn: #d1495b;
+    --font: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    --mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: var(--color-text-primary, #e9edf5);
+      --fg-dim: var(--color-text-secondary, #9aa4b5);
+      --bg: var(--color-background-primary, #0f1218);
+      --panel: var(--color-background-secondary, #171b23);
+      --line: var(--color-border-primary, #262c37);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font-family: var(--font); color: var(--fg); background: var(--bg); padding: 14px; }
+  .card { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 16px; max-width: 560px; }
+  .tag { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-dim); }
+  .q { font-size: 16px; font-weight: 640; margin: 6px 0 10px; line-height: 1.35; }
+  .rec { font-size: 13px; color: var(--fg-dim); margin: 0 0 14px; line-height: 1.45; }
+  .rec b { color: var(--fg); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  button {
+    font-family: var(--font); font-size: 14px; font-weight: 600; cursor: pointer;
+    padding: 9px 18px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  }
+  button.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .meta { margin-top: 12px; font-size: 12px; color: var(--fg-dim); font-family: var(--mono); }
+  .count { color: var(--warn); font-weight: 600; }
+  .done { margin-top: 12px; font-size: 13px; font-weight: 600; }
+</style>
+
+<div class="card">
+  <div class="tag" id="intent">ASK · approval</div>
+  <div class="q" id="q">Waiting for a decision card…</div>
+  <div class="rec" id="rec"></div>
+  <div class="row" id="btns"></div>
+  <div class="meta" id="meta"></div>
+  <div class="done" id="done" style="display:none"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var nextId = 1, pending = {}, ready = false;
+  var card = null, timer = null, remaining = 0, decided = false;
+
+  function send(method, params) {
+    var id = nextId++;
+    return new Promise(function (res, rej) {
+      pending[id] = { res: res, rej: rej };
+      window.parent.postMessage({ jsonrpc: "2.0", id: id, method: method, params: params || {} }, "*");
+    });
+  }
+  function notify(method, params) {
+    window.parent.postMessage({ jsonrpc: "2.0", method: method, params: params || {} }, "*");
+  }
+  function markReady() {                                 // GOTCHA #2 — unconditional
+    if (ready) return; ready = true;
+    notify("ui/notifications/initialized", {});
+    sendSize();
+  }
+  function sendSize() {                                  // GOTCHA #3 — real numbers
+    notify("ui/notifications/size-changed", {
+      width:  Math.max(1, Math.ceil(document.documentElement.scrollWidth  || 320)),
+      height: Math.max(1, Math.ceil(document.documentElement.scrollHeight || 200))
+    });
+  }
+
+  window.addEventListener("message", function (ev) {
+    var m = ev.data; if (!m || m.jsonrpc !== "2.0") return;
+    if (m.id !== undefined && pending[m.id]) {
+      var p = pending[m.id]; delete pending[m.id];
+      markReady();
+      if (m.error) p.rej(new Error(m.error.message || "error")); else p.res(m.result);
+      return;
+    }
+    if (m.method === "ui/notifications/tool-result") render(m.params);
+  });
+
+  function envelopeOf(result) {
+    if (!result) return null;
+    var r = result.result || result;
+    if (r.structuredContent && typeof r.structuredContent === "object") return r.structuredContent;
+    var c = r.content && r.content[0];
+    if (c && typeof c.text === "string") { try { return JSON.parse(c.text); } catch (e) { return null; } }
+    return r.card ? r : null;
+  }
+
+  // report the human's decision to the MODEL (host-native channel). No approval
+  // is fabricated: the model receives the tap and proceeds on its own authority.
+  function report(choice, viaTimeout) {
+    if (decided) return;
+    decided = true;
+    if (timer) { clearInterval(timer); timer = null; }
+    var q = (card && card.question) || "the requested action";
+    var text = viaTimeout
+      ? "No response before the timer expired; auto-selected the safe default “" + choice + "” for: " + q
+      : "Human decision on “" + q + "”: " + choice;
+    notify("ui/message", { role: "user", content: [{ type: "text", text: text }] });
+    var el = document.getElementById("done");
+    el.style.display = "block";
+    el.textContent = (viaTimeout ? "⏱ timed out → " : "✓ ") + choice + " — reported to the model";
+    el.style.color = choice === (card && card.default) && viaTimeout ? "var(--warn)" : "var(--accent)";
+    var btns = document.getElementById("btns").querySelectorAll("button");
+    for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
+    document.getElementById("meta").textContent = "";
+    sendSize();
+  }
+
+  function tick() {
+    remaining -= 1;
+    var meta = document.getElementById("meta");
+    if (remaining <= 0) {
+      report((card && card.default) || "dismiss", true);
+      return;
+    }
+    meta.innerHTML = "auto-selects the safe default <b>" +
+      ((card && card.default) || "dismiss") + "</b> in <span class=\"count\">" + remaining + "s</span>";
+  }
+
+  function render(params) {
+    var env = envelopeOf(params);
+    var c = (env && env.card) || env;
+    if (!c || (!c.question && !c.options)) return;
+    card = {
+      question: c.question || "Approve this action?",
+      options: (c.options && c.options.length) ? c.options : ["approve", "dismiss"],
+      recommendation: c.recommendation || "",
+      "default": c["default"] || c.options && c.options[c.options.length - 1] || "dismiss",
+      timeoutSec: c.timeoutSec || c.timeout_sec || 60,
+      intent: c.intent || "ASK"
+    };
+    document.getElementById("intent").textContent = card.intent + " · approval";
+    document.getElementById("q").textContent = card.question;
+    document.getElementById("rec").innerHTML = card.recommendation
+      ? "<b>Recommendation:</b> " + String(card.recommendation) : "";
+
+    var btns = document.getElementById("btns");
+    btns.innerHTML = "";
+    card.options.forEach(function (opt, i) {
+      var b = document.createElement("button");
+      b.textContent = opt;
+      if (i === 0) b.className = "primary";
+      b.onclick = function () { report(opt, false); };
+      btns.appendChild(b);
+    });
+
+    decided = false;
+    document.getElementById("done").style.display = "none";
+    remaining = Math.max(1, Math.round(card.timeoutSec));
+    if (timer) clearInterval(timer);
+    document.getElementById("meta").innerHTML = "auto-selects the safe default <b>" +
+      card["default"] + "</b> in <span class=\"count\">" + remaining + "s</span>";
+    timer = setInterval(tick, 1000);
+    sendSize();
+  }
+
+  send("ui/initialize", {
+    protocolVersion: "2026-01-26",
+    appInfo: { name: "palimpsest-approval", version: "1.0.0" },
+    appCapabilities: { availableDisplayModes: ["inline"] }
+  }).then(markReady).catch(markReady);
+  setTimeout(markReady, 1200);
+})();
+</script>
