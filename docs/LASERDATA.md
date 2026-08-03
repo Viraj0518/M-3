@@ -70,10 +70,11 @@ when rebuilding a cold graph.
 
 ## LaserData Cloud
 
-For Cloud, only the environment changes:
+For Cloud, only the environment changes. The Python SDK requires the service
+port in this deployment's connection string:
 
 ```bash
-export LASER_CONNECTION_STRING='token-or-user-password@your-laserdata-host'
+export LASER_CONNECTION_STRING='token-or-user-password@your-laserdata-host:8090'
 .venv/bin/python -m realtime.laser_smoke --topic smoke.events
 ```
 

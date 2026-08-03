@@ -24,15 +24,19 @@ ENV VENV=/opt/venv
 RUN python3 -m venv "$VENV"
 ENV PATH="$VENV/bin:$PATH"
 
-# ── bridge python deps (layer cached on requirements.txt alone) ──────────────
+# ── bridge/realtime Python deps (layer cached on requirements files alone) ───
 COPY app/bridge/requirements.txt /tmp/requirements.txt
+COPY realtime/requirements.txt /tmp/realtime-requirements.txt
 RUN pip install --no-cache-dir --upgrade pip \
- && pip install --no-cache-dir -r /tmp/requirements.txt
+ && pip install --no-cache-dir \
+      -r /tmp/requirements.txt \
+      -r /tmp/realtime-requirements.txt
 
-# ── the app: memory plane + bridge + the projector UI (served at /ui/) ───────
+# ── the app: memory plane + bridge + realtime seam + projector UI ────────────
 WORKDIR /app
 COPY memory/ /app/memory/
 COPY app/ /app/app/
+COPY realtime/ /app/realtime/
 
 # ── runtime config ───────────────────────────────────────────────────────────
 # FalkorDB answers on loopback INSIDE the container (127.0.0.1:6401); the bridge
