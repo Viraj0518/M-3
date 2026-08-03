@@ -26,9 +26,16 @@ from realtime import laser_io, pipeline, replay
 _LOG: Optional[laser_io.LaserLog] = None
 _LOCK = asyncio.Lock()
 
-#: Bounded-scan cap for the tail read (see `tail`). The money beat is replay,
-#: not an unbounded live tail; this keeps a /stream_tail poll cheap.
-TAIL_MAX_SCAN = 10_000
+#: Idle bound (seconds) for the live tail's per-partition ``next()``: once a
+#: partition's ``polling='last'`` backfill is exhausted the next read would block
+#: waiting for a NEW append, so we stop there. Full partitions never wait.
+_TAIL_IDLE_S = 1.0
+
+#: Bounded SEEK window for the replay/scrub: records per partition FROM the seek
+#: point. The money beat is a rewind to an INSTANT, not a full re-fetch, so a
+#: wall-clock/offset replay returns a window, not the whole tail.
+_SEEK_LIMIT_DEFAULT = 500
+_SEEK_IDLE_S = 1.5
 
 
 async def get_log() -> laser_io.LaserLog:
@@ -61,22 +68,36 @@ def _laser_down(exc: Exception) -> Dict[str, Any]:
 # stream_publish
 # ═══════════════════════════════════════════════════════════════════════════
 
-async def publish(topic: str, payload: Any, *, key: Optional[str] = None) -> Dict[str, Any]:
+async def publish(
+    topic: str,
+    payload: Any,
+    *,
+    key: Optional[str] = None,
+    headers: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """Append one durable record to ``topic`` keyed by ``key``. Returns an
-    honest envelope: ``ok:false`` + ``code`` only on a genuine failure."""
+    honest envelope: ``ok:false`` + ``code`` only on a genuine failure.
+
+    ``headers`` carry out-of-band attribution (``author_agent`` / ``case_id``)
+    onto the record so a consumer reads provenance from ``rec['headers']`` rather
+    than re-parsing the body. It is forwarded only when present, so the bridge's
+    existing key-only publish path is byte-for-byte unchanged."""
     try:
         log = await get_log()
     except laser_io.LaserUnavailable as exc:
         return {"ok": False, "code": "LASER_UNAVAILABLE", "error": str(exc),
                 "topic": topic, "laser": _laser_down(exc)}
     try:
-        await log.publish(topic, payload, key=key)
+        await log.publish(topic, payload, key=key, headers=headers)
     except Exception as exc:  # noqa: BLE001
         reset_log()
         return {"ok": False, "code": "LASER_PUBLISH_FAILED",
                 "error": "{0}: {1}".format(type(exc).__name__, exc), "topic": topic}
-    return {"ok": True, "topic": topic, "key": key, "published": 1,
-            "capabilities": log.require_log_only()}
+    out = {"ok": True, "topic": topic, "key": key, "published": 1,
+           "capabilities": log.require_log_only()}
+    if headers:
+        out["attributed"] = True
+    return out
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -84,13 +105,22 @@ async def publish(topic: str, payload: Any, *, key: Optional[str] = None) -> Dic
 # ═══════════════════════════════════════════════════════════════════════════
 
 async def tail(topic: str, *, limit: int = 25, since_offset: Optional[int] = None) -> Dict[str, Any]:
-    """The newest ``limit`` records off ``topic``, with their log offsets.
+    """The newest ``limit`` records off ``topic`` — the LIVE EDGE, with offsets.
 
-    Bounded-scan implementation: replays up to ``TAIL_MAX_SCAN`` records from
-    offset 0 and returns the last ``limit`` of the scanned window. Real records,
-    real offsets, HONESTLY labelled (`scanned`, `capped`). On a laser outage it
-    returns a declared-empty tail with ``ok:true`` so the projector strip stays
-    live rather than throwing to the mock graph.
+    LIVE-CONSUMER implementation. A ``polling='last'`` consumer on EACH of the
+    ``config.TOPIC_PARTITIONS`` partitions backfills that partition's newest
+    ``limit`` records, ending at its ``current_offset`` (the live edge — verified
+    in-session), and we return the newest ``limit`` of the union ordered by the
+    log's own append clock. ``auto_commit`` is disabled, so repeated polls are
+    idempotent and never advance a cursor.
+
+    This REPLACES the old bounded-scan tail, which returned the last ``limit`` of
+    the FIRST 10k records from offset 0: on a 50-100 ev/s firehose that froze at
+    ~offset 9,975 within 2-3 minutes and never showed the present, contradicting
+    the tool doc's promise of "what is happening RIGHT NOW".
+
+    On a laser outage it returns a declared-empty tail with ``ok:true`` so the
+    projector strip stays live rather than throwing to the mock graph.
     """
     try:
         log = await get_log()
@@ -100,8 +130,22 @@ async def tail(topic: str, *, limit: int = 25, since_offset: Optional[int] = Non
             "offset": None, "limit": limit, "laser": _laser_down(exc),
             "note": "log spine unreachable — declared-empty tail (projector stays live)",
         }
+
+    n = limit if (limit and limit > 0) else 25
+    parts = config.TOPIC_PARTITIONS
+
+    async def _tail_partition(p: int) -> List[Dict[str, Any]]:
+        c = await log.consumer(
+            topic, "ui-tail-p{0}".format(p), partition=p,
+            polling="last", batch_length=n, auto_commit="disabled",
+        )
+        try:
+            return await log.drain_consumer(c, max_records=n, idle_timeout=_TAIL_IDLE_S)
+        finally:
+            await log.shutdown_consumer(c)
+
     try:
-        records = await log.drain_from_zero(topic, max_records=TAIL_MAX_SCAN)
+        per_partition = await asyncio.gather(*[_tail_partition(p) for p in range(parts)])
     except Exception as exc:  # noqa: BLE001
         reset_log()
         return {
@@ -110,21 +154,35 @@ async def tail(topic: str, *, limit: int = 25, since_offset: Optional[int] = Non
             "note": "tail read failed — declared-empty tail",
         }
 
+    records = [r for sub in per_partition for r in sub]
     if since_offset is not None:
         records = [r for r in records if (r.get("offset") or 0) >= since_offset]
 
-    scanned = len(records)
-    window = records[-limit:] if limit and limit > 0 else records
+    # Newest `limit` of the union, ordered by the log's APPEND clock then the
+    # (partition, offset) coordinate — a stable cross-partition "now".
+    records.sort(key=lambda r: (r.get("timestamp_micros") or 0, r.get("partition") or 0, r.get("offset") or 0))
+    window = records[-n:] if n else records
+
     out: List[Dict[str, Any]] = [
         {
             "partition": r.get("partition"),
             "offset": r.get("offset"),
             "seq": list(r.get("seq")) if r.get("seq") else None,
+            "timestamp_micros": r.get("timestamp_micros"),
+            "origin_timestamp_micros": r.get("origin_timestamp_micros"),
+            "checksum": r.get("checksum"),
             "value": r.get("value"),
         }
         for r in window
     ]
-    max_offset = max((r.get("offset") or 0 for r in records), default=None)
+    # Per-partition live edge (high-water) — the honest "how far the log has got".
+    live_edge: Dict[str, int] = {}
+    for r in records:
+        p = r.get("partition")
+        hw = r.get("current_offset")
+        if p is not None and hw is not None:
+            live_edge[str(p)] = max(live_edge.get(str(p), hw), hw)
+    max_offset = max((r.get("offset") for r in window if r.get("offset") is not None), default=None)
     return {
         "ok": True,
         "stub": False,
@@ -133,10 +191,64 @@ async def tail(topic: str, *, limit: int = 25, since_offset: Optional[int] = Non
         "events": out,          # both keys: rest.py's flattenRecords reads either
         "count": len(out),
         "offset": max_offset,
-        "scanned": scanned,
-        "capped": scanned >= TAIL_MAX_SCAN,
+        "partitions": parts,
+        "live_edge": live_edge,
         "limit": limit,
+        "source": "consumer-last",
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# seek helpers (shared by the offset replay and the wall-clock scrub)
+# ═══════════════════════════════════════════════════════════════════════════
+
+async def _seek_across_partitions(
+    log: laser_io.LaserLog,
+    topic: str,
+    *,
+    polling: str,
+    limit: int,
+    offset: Optional[int] = None,
+    timestamp_micros: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Fan a SEEK consumer across every partition and return the union of up to
+    ``limit`` records per partition FROM the seek point. ``polling='offset'`` +
+    ``offset`` is a log-position seek; ``polling='timestamp'`` + ``timestamp_micros``
+    is the WALL-CLOCK seek (the only way to seek by time — ``Topic.replay`` has no
+    timestamp cursor). ``allow_replay=True`` so the seek reaches history behind any
+    committed cursor. Server-seek: never fetch-everything-then-filter-in-Python."""
+    parts = config.TOPIC_PARTITIONS
+
+    async def _one(p: int) -> List[Dict[str, Any]]:
+        c = await log.consumer(
+            topic, "ui-seek-p{0}".format(p), partition=p, polling=polling,
+            batch_length=limit, offset=offset, timestamp_micros=timestamp_micros,
+            allow_replay=True, auto_commit="disabled",
+        )
+        try:
+            return await log.drain_consumer(c, max_records=limit, idle_timeout=_SEEK_IDLE_S)
+        finally:
+            await log.shutdown_consumer(c)
+
+    per = await asyncio.gather(*[_one(p) for p in range(parts)])
+    return [r for sub in per for r in sub]
+
+
+def _seek_out(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Seek records -> the wire shape, ordered chronologically from the seek
+    point (so a scrub reads T, T+, T++ as you step forward)."""
+    records.sort(key=lambda r: (r.get("timestamp_micros") or 0, r.get("partition") or 0, r.get("offset") or 0))
+    return [
+        {
+            "partition": r.get("partition"),
+            "offset": r.get("offset"),
+            "timestamp_micros": r.get("timestamp_micros"),
+            "origin_timestamp_micros": r.get("origin_timestamp_micros"),
+            "checksum": r.get("checksum"),
+            "value": r.get("value"),
+        }
+        for r in records
+    ]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -147,18 +259,29 @@ async def stream_replay(
     topic: str,
     *,
     from_offset: int = 0,
+    from_timestamp_micros: Optional[int] = None,
     target_graph: Optional[str] = None,
     embedder_kind: str = "test",
     use_gate: bool = True,
     reset: bool = True,
+    limit: int = _SEEK_LIMIT_DEFAULT,
 ) -> Dict[str, Any]:
-    """Replay ``topic`` from ``from_offset`` (0 = the beginning). When
-    ``target_graph`` is given, re-derives the graph into it (the A/B); otherwise
-    returns the replayed records + offsets so a caller can drive its own build.
+    """Replay ``topic`` from a log position or a WALL-CLOCK instant.
 
-    Only offset 0 (full rewind) is supported for the graph re-derive today; a
-    non-zero ``from_offset`` returns records but does not partial-rebuild, and
-    says so on the envelope (honest, not silent).
+    Three read modes when ``target_graph`` is omitted (returns records + offsets):
+
+      * ``from_timestamp_micros=T`` — the HEADLINE time-scrub: a
+        ``polling='timestamp'`` consumer SERVER-SEEKS every partition to the
+        wall-clock instant ``T`` and returns the window from there. This is the
+        ONLY wall-clock seek available — ``Topic.replay`` takes a per-partition
+        offset dict and has no timestamp cursor.
+      * ``from_offset=N`` (N>0) — a ``polling='offset'`` SERVER-SEEK to log
+        position ``N`` (replaces the old fetch-everything-then-filter-in-Python).
+      * neither — the full rewind from offset 0 via the replay cursor (unchanged).
+
+    When ``target_graph`` is given it re-derives the whole graph into that key
+    (the A/B) — that path is the FULL rewind only (from_offset=0, no timestamp);
+    a partial seek there returns an honest ``PARTIAL_REPLAY_UNSUPPORTED``.
     """
     try:
         log = await get_log()
@@ -167,11 +290,13 @@ async def stream_replay(
                 "topic": topic, "laser": _laser_down(exc)}
 
     if target_graph:
-        if from_offset and from_offset != 0:
+        if (from_offset and from_offset != 0) or from_timestamp_micros is not None:
             return {
                 "ok": False, "code": "PARTIAL_REPLAY_UNSUPPORTED",
-                "error": "graph re-derive supports from_offset=0 (full rewind) only; "
-                         "got {0}. Omit target_graph to fetch records from an offset.".format(from_offset),
+                "error": "graph re-derive supports the FULL rewind (from_offset=0, no "
+                         "timestamp) only; got from_offset={0}, from_timestamp_micros={1}. "
+                         "Omit target_graph to fetch records from an offset or a "
+                         "wall-clock instant.".format(from_offset, from_timestamp_micros),
                 "topic": topic,
             }
         try:
@@ -197,15 +322,36 @@ async def stream_replay(
             "source": "replay-from-0",
         }
 
-    # No target graph: just fetch records from the offset.
+    # No target graph: SERVER-SEEK the records off the durable log.
+    #   • from_timestamp_micros -> WALL-CLOCK time-scrub (polling='timestamp')
+    #   • from_offset > 0        -> log-position seek     (polling='offset')
+    #   • else (0, no timestamp) -> the full rewind via the replay cursor
     try:
+        if from_timestamp_micros is not None:
+            records = await _seek_across_partitions(
+                log, topic, polling="timestamp", limit=limit,
+                timestamp_micros=from_timestamp_micros,
+            )
+            out = _seek_out(records)
+            return {"ok": True, "topic": topic,
+                    "from_timestamp_micros": from_timestamp_micros,
+                    "records": out, "count": len(out),
+                    "partitions": config.TOPIC_PARTITIONS, "limit": limit,
+                    "source": "consumer-timestamp"}
+        if from_offset and from_offset > 0:
+            records = await _seek_across_partitions(
+                log, topic, polling="offset", limit=limit, offset=from_offset,
+            )
+            out = _seek_out(records)
+            return {"ok": True, "topic": topic, "from_offset": from_offset,
+                    "records": out, "count": len(out),
+                    "partitions": config.TOPIC_PARTITIONS, "limit": limit,
+                    "source": "consumer-offset"}
         records = await replay.drain_via_replay(log, topic)
     except Exception as exc:  # noqa: BLE001
         reset_log()
         return {"ok": False, "code": "REPLAY_FAILED",
                 "error": "{0}: {1}".format(type(exc).__name__, exc), "topic": topic}
-    if from_offset:
-        records = [r for r in records if (r.get("offset") or 0) >= from_offset]
     out = [{"partition": r.get("partition"), "offset": r.get("offset"), "value": r.get("value")}
            for r in records]
     return {"ok": True, "topic": topic, "from_offset": from_offset,
@@ -228,4 +374,4 @@ async def verify_parity(
     )
 
 
-__all__ = ["get_log", "reset_log", "publish", "tail", "stream_replay", "verify_parity", "TAIL_MAX_SCAN"]
+__all__ = ["get_log", "reset_log", "publish", "tail", "stream_replay", "verify_parity"]
