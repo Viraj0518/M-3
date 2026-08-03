@@ -169,7 +169,10 @@ export class AuthModule {
       // private key, so changing it strands every previously issued key with
       // "Failed to decrypt private key" and the token endpoint 500s. Rotating
       // it is a real operation: delete the Jwks nodes in the same change.
-      secret: options.secret ?? process.env.BETTER_AUTH_SECRET ?? DEFAULT_DEV_SECRET,
+      // `|| DEFAULT_DEV_SECRET`, not `??`: docker-compose's `${VAR:-}`
+      // delivers an EMPTY STRING when the host var is unset, and an empty
+      // secret must fall through to the dev fallback, not encrypt the JWKS.
+      secret: options.secret ?? (process.env.BETTER_AUTH_SECRET || DEFAULT_DEV_SECRET),
       audiences,
     });
   }
