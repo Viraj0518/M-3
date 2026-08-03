@@ -91,8 +91,11 @@ def cmd_run(args: argparse.Namespace) -> int:
     data = Path(args.data) if args.data else ORACLE
     results: List[Dict[str, Any]] = []
     for arm in arms:
-        cfg = args.config or ("dry_smoke" if args.dry else arm)
-        print(f"\n=== {arm}  (config={cfg}, split={args.split}, data={data.name}) ===")
+        # --dry OVERLAYS the stubs onto the arm's own config, it does not
+        # replace it -- so `--dry --ablations` still exercises each removal test.
+        cfg = args.config or arm
+        label = f"{cfg}+dry" if args.dry else cfg
+        print(f"\n=== {arm}  (config={label}, split={args.split}, data={data.name}) ===")
         try:
             r = run_arm(
                 arm_name=arm,
@@ -102,6 +105,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 seed=args.seed,
                 limit=args.limit,
                 progress=not args.quiet,
+                dry=args.dry,
             )
         except guards.GuardViolation as exc:
             print(f"GUARD FAILED: {exc}", file=sys.stderr)

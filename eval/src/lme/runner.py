@@ -52,6 +52,16 @@ def _sampling_from_cfg(cfg: Mapping[str, Any]) -> Sampling:
     )
 
 
+#: The dry overlay. Applied ON TOP of the arm's own config, never INSTEAD of it
+#: -- otherwise `--dry --ablations` would silently run four identical
+#: non-ablated arms and the removal-test wiring would never be exercised.
+DRY_OVERLAY: Dict[str, Any] = {
+    "test_embedder": True,
+    "test_reader": True,
+    "test_extractor": True,
+}
+
+
 def run_arm(
     *,
     arm_name: str,
@@ -63,9 +73,14 @@ def run_arm(
     overrides: Optional[Mapping[str, Any]] = None,
     progress: bool = True,
     runs_dir: Optional[Path] = None,
+    dry: bool = False,
 ) -> Dict[str, Any]:
     """Execute one arm over one split. Returns a summary dict."""
     cfg = load_config(config_name)
+    if dry:
+        cfg.update(DRY_OVERLAY)
+        # keep the arm's real mechanism settings (incl. `ablate:`) intact
+        cfg["_config_files"] = list(cfg.get("_config_files", [])) + ["<dry-overlay>"]
     if overrides:
         cfg.update({k: v for k, v in overrides.items() if v is not None})
     cfg["arm"] = arm_name

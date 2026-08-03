@@ -1,0 +1,15 @@
+# Run artifacts. Manifests + rows are reproducible from the pinned inputs; a
+# run that needs to be cited is tarballed into plan/gates/ deliberately, never
+# left lying in the working tree.
+runs/
+
+# Content-addressed caches. Regenerable by definition (that is the point of
+# content addressing) and large.
+.cache/
+
+# uv venv
+.venv/
+.pytest_cache/
+
+# Datasets are pinned by hash in data/SHA256SUMS, never committed (277 MB).
+data/*.json

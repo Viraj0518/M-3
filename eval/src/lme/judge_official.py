@@ -94,7 +94,10 @@ def _probe_templates() -> str:
 
 #: Pinned by tests/test_judge_official.py. Update ONLY when upstream changes,
 #: and say so out loud in the report -- it makes the number non-comparable.
-PROMPT_TEMPLATES_SHA256: str = "e40ecdea6cffec84e2b3c04f5a1a7c5a1e0f9c1b0b96a68bff5e8b2f9a24e5e5"
+PROMPT_TEMPLATES_SHA256: str = "2c551dc74bf984174b1c143e373acc7a7f7e4df52f938a85aa7e0a564caaebd3"
+
+#: sha256 of the upstream FILE this was transcribed from, as fetched 2026-08-03.
+UPSTREAM_FILE_SHA256: str = "ecce9c4c79dc89d99534ac17b383a5cbb5b9f0c69ee98adaf0684742e3d95251"
 
 
 def official_label(eval_response: str) -> bool:
