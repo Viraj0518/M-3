@@ -1,0 +1,199 @@
+<!doctype html>
+<!--
+  PALIMPSEST — cold vs warm ablation (ui://palimpsest/ablation-v1)
+
+  MCP Apps bundle. Dependency-free vanilla JS (no CDN). Renders the headline
+  beat INSIDE the host: the SAME new event fed to a WARM graph (full co-edit
+  history) and a COLD graph (that event only) yields the OPPOSITE mechanical
+  verdict — WARM escalates (the 3-hop ring fires), COLD dismisses (no chain to
+  close). GOAL victory condition 1, the beat that is NEVER cut.
+
+  Reads the `ablation` tool result (opposite_verdict / verdict_warm /
+  verdict_cold / warm.* / cold.*) and can re-run it via a tools/call through the
+  host. Topology-only, no LLM, no key — safe to trigger live. Non-widget hosts
+  read the same numbers from the plain-text fallback.
+-->
+<meta charset="utf-8" />
+<style>
+  :root {
+    --fg: var(--color-text-primary, #10131a);
+    --fg-dim: var(--color-text-secondary, #5b6472);
+    --bg: var(--color-background-primary, #ffffff);
+    --panel: var(--color-background-secondary, #f4f6fa);
+    --line: var(--color-border-primary, #e2e6ee);
+    --warm: #e0662d;
+    --warm-bg: rgba(224, 102, 45, 0.10);
+    --cold: #3b82c4;
+    --cold-bg: rgba(59, 130, 196, 0.10);
+    --ok: #22a06b;
+    --font: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    --mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: var(--color-text-primary, #e9edf5);
+      --fg-dim: var(--color-text-secondary, #9aa4b5);
+      --bg: var(--color-background-primary, #0f1218);
+      --panel: var(--color-background-secondary, #171b23);
+      --line: var(--color-border-primary, #262c37);
+      --warm-bg: rgba(224, 102, 45, 0.16);
+      --cold-bg: rgba(59, 130, 196, 0.16);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font-family: var(--font); color: var(--fg); background: var(--bg); padding: 14px; }
+  .head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .title { font-weight: 650; font-size: 14px; }
+  .event { font-size: 12px; color: var(--fg-dim); margin: 6px 0 12px; line-height: 1.4; }
+  .event b { color: var(--fg); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 460px) { .cols { grid-template-columns: 1fr; } }
+  .col { border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .col.cold { background: var(--cold-bg); border-color: var(--cold); }
+  .col.warm { background: var(--warm-bg); border-color: var(--warm); }
+  .col h3 { margin: 0 0 2px; font-size: 12px; font-family: var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
+  .col.cold h3 { color: var(--cold); }
+  .col.warm h3 { color: var(--warm); }
+  .verdict { font-size: 22px; font-weight: 750; margin: 6px 0 10px; }
+  .kv { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 12px; padding: 2px 0; color: var(--fg-dim); }
+  .kv b { color: var(--fg); font-weight: 600; }
+  .banner { margin: 12px 0 0; font-size: 13px; font-weight: 600; padding: 9px 12px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line); }
+  .banner.ok { color: var(--ok); }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  button { font-family: var(--font); font-size: 13px; font-weight: 600; cursor: pointer; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .foot { font-size: 11px; color: var(--fg-dim); font-family: var(--mono); }
+</style>
+
+<div class="head">
+  <span class="title">Ablation — same event, opposite verdict</span>
+  <span class="foot" id="window"></span>
+</div>
+<div class="event" id="event">Waiting for the ablation result…</div>
+<div class="cols">
+  <div class="col cold">
+    <h3>COLD · event only</h3>
+    <div class="verdict" id="v-cold">—</div>
+    <div class="kv"><span>ring fired</span><b id="c-fired">—</b></div>
+    <div class="kv"><span>ring count</span><b id="c-count">—</b></div>
+    <div class="kv"><span>ring score</span><b id="c-score">—</b></div>
+    <div class="kv"><span>FalkorDB</span><b id="c-ms">—</b></div>
+  </div>
+  <div class="col warm">
+    <h3>WARM · history + event</h3>
+    <div class="verdict" id="v-warm">—</div>
+    <div class="kv"><span>ring fired</span><b id="w-fired">—</b></div>
+    <div class="kv"><span>ring count</span><b id="w-count">—</b></div>
+    <div class="kv"><span>ring score</span><b id="w-score">—</b></div>
+    <div class="kv"><span>FalkorDB</span><b id="w-ms">—</b></div>
+  </div>
+</div>
+<div class="banner" id="banner"></div>
+<div class="row">
+  <button id="rerun">Re-run ablation</button>
+  <span class="foot" id="status"></span>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var nextId = 1, pending = {}, ready = false;
+
+  function send(method, params) {
+    var id = nextId++;
+    return new Promise(function (res, rej) {
+      pending[id] = { res: res, rej: rej };
+      window.parent.postMessage({ jsonrpc: "2.0", id: id, method: method, params: params || {} }, "*");
+    });
+  }
+  function notify(method, params) {
+    window.parent.postMessage({ jsonrpc: "2.0", method: method, params: params || {} }, "*");
+  }
+  function markReady() {                                 // GOTCHA #2 — unconditional
+    if (ready) return; ready = true;
+    notify("ui/notifications/initialized", {});
+    sendSize();
+  }
+  function sendSize() {                                  // GOTCHA #3 — real numbers
+    notify("ui/notifications/size-changed", {
+      width:  Math.max(1, Math.ceil(document.documentElement.scrollWidth  || 320)),
+      height: Math.max(1, Math.ceil(document.documentElement.scrollHeight || 200))
+    });
+  }
+
+  window.addEventListener("message", function (ev) {
+    var m = ev.data; if (!m || m.jsonrpc !== "2.0") return;
+    if (m.id !== undefined && pending[m.id]) {
+      var p = pending[m.id]; delete pending[m.id];
+      markReady();
+      if (m.error) p.rej(new Error(m.error.message || "error")); else p.res(m.result);
+      return;
+    }
+    if (m.method === "ui/notifications/tool-result") render(m.params);
+  });
+
+  function envelopeOf(result) {
+    if (!result) return null;
+    var r = result.result || result;
+    if (r.structuredContent && typeof r.structuredContent === "object") return r.structuredContent;
+    var c = r.content && r.content[0];
+    if (c && typeof c.text === "string") { try { return JSON.parse(c.text); } catch (e) { return null; } }
+    return (r.warm || r.cold) ? r : null;
+  }
+
+  function txt(id, v) { document.getElementById(id).textContent = v; }
+  function fmt(v) { return (v === null || v === undefined) ? "—" : v; }
+
+  function render(params) {
+    var env = envelopeOf(params);
+    if (!env || (!env.warm && !env.cold)) { txt("status", "no ablation data"); return; }
+    var warm = env.warm || {}, cold = env.cold || {};
+    var vw = env.verdict_warm || (warm.fired ? "escalate" : "dismiss");
+    var vc = env.verdict_cold || (cold.fired ? "escalate" : "dismiss");
+
+    var ev = env.event || {};
+    document.getElementById("event").innerHTML = ev.actor
+      ? "New event: <b>" + ev.actor + "</b> edits <b>" + ev.page + "</b> — " +
+        (ev.role || "the move that completes the ring") + ". Fed to both graphs, identically."
+      : "The same new event is fed to both graphs, identically.";
+    txt("window", env.window_s != null ? ("window " + env.window_s + "s") : "");
+
+    txt("v-warm", vw); txt("v-cold", vc);
+    document.getElementById("v-warm").style.color = warm.fired ? "var(--warm)" : "var(--fg-dim)";
+    document.getElementById("v-cold").style.color = cold.fired ? "var(--warm)" : "var(--fg-dim)";
+    txt("w-fired", warm.fired ? "TRUE" : "false");
+    txt("c-fired", cold.fired ? "TRUE" : "false");
+    txt("w-count", fmt(warm.ring_count)); txt("c-count", fmt(cold.ring_count));
+    txt("w-score", fmt(warm.ring_score)); txt("c-score", fmt(cold.ring_score));
+    txt("w-ms", fmt(warm.run_time_ms) + " ms"); txt("c-ms", fmt(cold.run_time_ms) + " ms");
+
+    var opp = env.opposite_verdict != null ? env.opposite_verdict : (warm.fired && !cold.fired);
+    var banner = document.getElementById("banner");
+    if (opp) {
+      banner.className = "banner ok";
+      banner.textContent = "✓ OPPOSITE VERDICT — same event, escalate vs dismiss, for a mechanical reason (COLD has no chain for the ring to close).";
+    } else {
+      banner.className = "banner";
+      banner.textContent = "verdicts did not diverge on this run — check the seed/window.";
+    }
+    txt("status", "");
+    sendSize();
+  }
+
+  document.getElementById("rerun").onclick = function () {
+    var btn = this; btn.disabled = true;
+    txt("status", "re-running through the host…");
+    send("tools/call", { name: "palimpsest_ablation", arguments: {} })
+      .then(function (r) { render(r); btn.disabled = false; })
+      .catch(function (e) { txt("status", "error: " + (e && e.message || e)); btn.disabled = false; });
+  };
+
+  send("ui/initialize", {
+    protocolVersion: "2026-01-26",
+    appInfo: { name: "palimpsest-ablation", version: "1.0.0" },
+    appCapabilities: { availableDisplayModes: ["inline", "fullscreen"] }
+  }).then(markReady).catch(markReady);
+  setTimeout(markReady, 1200);
+})();
+</script>

@@ -80,7 +80,7 @@ from memory.taxonomy import (
     normalize_block_type,
 )
 
-from . import graphstore, guard, identity
+from . import graphstore, guard, identity, widget_apps
 
 # ─── MCP SDK, guarded ───────────────────────────────────────────────────────
 # The module must IMPORT CLEANLY with or without the SDK installed, so the
@@ -90,8 +90,11 @@ from . import graphstore, guard, identity
 # transport itself refuses to boot with an honest error (see _main).
 try:  # pragma: no cover - import-environment dependent
     from mcp.server import Server  # type: ignore[import-not-found]
+    from mcp.server.lowlevel.server import (  # type: ignore[import-not-found]
+        ReadResourceContents,
+    )
     from mcp.server.stdio import stdio_server  # type: ignore[import-not-found]
-    from mcp.types import TextContent, Tool  # type: ignore[import-not-found]
+    from mcp.types import Resource, TextContent, Tool  # type: ignore[import-not-found]
 
     MCP_AVAILABLE = True
 except ImportError:  # pragma: no cover - import-environment dependent
@@ -1648,8 +1651,33 @@ _EMBEDDING = {
 }
 
 
+# ─── MCP-Apps widget metadata (surface b+) ──────────────────────────
+# The ENTIRE widget delta on the tool surface: attach ``_meta.ui`` to exactly
+# the verbs that declare a UiSpec (``widget_apps.UI_SPECS``); every other tool
+# is untouched. REST/OpenAPI/CLI never read ``.meta``, so this moves ONE
+# surface. ``model_copy(update=...)`` sets the field AND marks it in
+# ``__pydantic_fields_set__`` so it survives serialization when nested in a
+# ListToolsResult/ServerResult (a plain attribute assignment is dropped there);
+# the stand-in Tool (bare interpreter, no ``model_copy``) falls back to a plain
+# assignment, which is all the non-MCP surfaces ever need.
+def _attach_widget_meta(tools: List[Tool]) -> List[Tool]:
+    out: List[Tool] = []
+    for tool in tools:
+        spec = widget_apps.UI_SPECS.get(verb_of(tool.name))
+        if spec is None:
+            out.append(tool)
+            continue
+        meta = widget_apps.tool_ui_meta(spec)
+        try:
+            out.append(tool.model_copy(update={"meta": meta}))
+        except AttributeError:  # structural stand-in without model_copy
+            tool.meta = meta
+            out.append(tool)
+    return out
+
+
 def _tools() -> List[Tool]:
-    return [
+    tools = [
         Tool(
             name=tool_name("remember"),
             description=(
@@ -2117,6 +2145,7 @@ def _tools() -> List[Tool]:
             },
         ),
     ]
+    return _attach_widget_meta(tools)
 
 
 def all_tools() -> List[Tool]:
@@ -2374,6 +2403,45 @@ if MCP_AVAILABLE:  # pragma: no cover - requires the SDK
             default_agent=MCP_DEFAULT_AGENT,
         )
         return [TextContent(type="text", text=json.dumps(result, default=str))]
+
+    # ── MCP-Apps widget resources (the ui:// bundles) ───────────────
+    # Serve the predeclared widget HTML the three tools reference via
+    # `_meta.ui.resourceUri`. The `_meta.ui` block (render-gate domain + border
+    # hint + any CSP) rides on BOTH resources/list AND resources/read, so an
+    # `--app-info` probe reads the same declaration wherever it looks; mimeType
+    # is the ratified `text/html;profile=mcp-app` on both. Registering these
+    # advertises the `resources` capability — purely ADDITIVE to the MCP
+    # surface, touching no verb, the pinned table, or the plain-text fallback.
+    @server.list_resources()
+    async def list_resources() -> List[Resource]:
+        out: List[Resource] = []
+        for spec, meta in widget_apps.resource_rows():
+            res = Resource(
+                uri=spec.uri,
+                name=spec.name,
+                title=spec.title,
+                description=spec.description,
+                mimeType=widget_apps.MIME,
+            )
+            res = res.model_copy(update={"meta": meta})  # `_meta` on the wire
+            out.append(res)
+        return out
+
+    @server.read_resource()
+    async def read_resource(uri: Any) -> List["ReadResourceContents"]:
+        spec = widget_apps.spec_for_uri(str(uri))
+        if spec is None:
+            raise ValueError("unknown widget resource: {0}".format(uri))
+        # ReadResourceContents carries `meta`, which the SDK propagates onto
+        # the TextResourceContents `_meta` — that is how resources/read gets
+        # the `ui.domain`/`ui.csp` render gate (guide §2.3).
+        return [
+            ReadResourceContents(
+                content=widget_apps.read_widget_html(spec),
+                mime_type=widget_apps.MIME,
+                meta=widget_apps.resource_ui_meta(spec),
+            )
+        ]
 
 
 # ═══════════════════════════════════════════════════════════════════════════

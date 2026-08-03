@@ -1,0 +1,235 @@
+<!doctype html>
+<!--
+  PALIMPSEST — live memory-graph widget (ui://palimpsest/graph-v1)
+
+  MCP Apps bundle. Dependency-free vanilla JS, no bundler, no CDN — loading the
+  @modelcontextprotocol/ext-apps `App` class from esm.sh is a KNOWN renderer
+  killer (zod mismatch throws at module-eval before app.connect(); ext-apps #671).
+  This is the whole protocol, hand-rolled.
+
+  It polls the EXISTING read verb `palimpsest_graph` through the host every
+  1.5 s (guide §2.5: poll via tools/call, never fetch localhost from the sandbox)
+  and paints an inline-SVG snapshot. Zero network permission — the CSP stays
+  locked down. The plain-text tool result is the fallback for non-widget hosts.
+-->
+<meta charset="utf-8" />
+<style>
+  :root {
+    --fg: var(--color-text-primary, #10131a);
+    --fg-dim: var(--color-text-secondary, #5b6472);
+    --bg: var(--color-background-primary, #ffffff);
+    --panel: var(--color-background-secondary, #f4f6fa);
+    --line: var(--color-border-primary, #e2e6ee);
+    --accent: var(--color-accent-primary, #3b6ef5);
+    --edge: var(--color-border-secondary, #c3ccda);
+    --font: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    --mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: var(--color-text-primary, #e9edf5);
+      --fg-dim: var(--color-text-secondary, #9aa4b5);
+      --bg: var(--color-background-primary, #0f1218);
+      --panel: var(--color-background-secondary, #171b23);
+      --line: var(--color-border-primary, #262c37);
+      --edge: var(--color-border-secondary, #333b48);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font-family: var(--font); color: var(--fg); background: var(--bg); padding: 12px; }
+  .head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .title { font-weight: 650; font-size: 14px; }
+  .key { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); }
+  .stats { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 10px; }
+  .chip {
+    font-family: var(--mono); font-size: 11px; padding: 3px 8px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--line); color: var(--fg-dim); white-space: nowrap;
+  }
+  .chip b { color: var(--fg); font-weight: 600; }
+  svg { width: 100%; height: auto; display: block; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+  .foot { margin-top: 8px; font-size: 11px; color: var(--fg-dim); font-family: var(--mono); overflow-wrap: anywhere; }
+  .live { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); margin-right: 4px; vertical-align: middle; }
+  .empty { color: var(--fg-dim); font-size: 12px; padding: 18px; text-align: center; }
+</style>
+
+<div class="head">
+  <span class="title"><span class="live" id="live"></span>PALIMPSEST — live memory graph</span>
+  <span class="key" id="gkey"></span>
+</div>
+<div class="stats" id="stats"></div>
+<svg id="svg" viewBox="0 0 640 360" preserveAspectRatio="xMidYMid meet" aria-label="memory graph"></svg>
+<div class="foot" id="foot">connecting…</div>
+
+<script>
+(function () {
+  "use strict";
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var nextId = 1, pending = {}, ready = false, polling = null;
+
+  // ── protocol plumbing (guide §2.4) ──────────────────────────────────────
+  function send(method, params) {                       // request → Promise
+    var id = nextId++;
+    return new Promise(function (res, rej) {
+      pending[id] = { res: res, rej: rej };
+      window.parent.postMessage({ jsonrpc: "2.0", id: id, method: method, params: params || {} }, "*");
+    });
+  }
+  function notify(method, params) {                      // notification (no id)
+    window.parent.postMessage({ jsonrpc: "2.0", method: method, params: params || {} }, "*");
+  }
+  function markReady() {                                 // GOTCHA #2 — unconditional
+    if (ready) return; ready = true;
+    notify("ui/notifications/initialized", {});
+    sendSize();
+    startPolling();
+  }
+  function sendSize() {                                  // GOTCHA #3 — real numbers, never null
+    notify("ui/notifications/size-changed", {
+      width:  Math.max(1, Math.ceil(document.documentElement.scrollWidth  || 320)),
+      height: Math.max(1, Math.ceil(document.documentElement.scrollHeight || 200))
+    });
+  }
+
+  window.addEventListener("message", function (ev) {
+    var m = ev.data; if (!m || m.jsonrpc !== "2.0") return;
+    if (m.id !== undefined && pending[m.id]) {           // a reply to one of our requests
+      var p = pending[m.id]; delete pending[m.id];
+      markReady();                                       // ready on ANY result-bearing reply
+      if (m.error) p.rej(new Error(m.error.message || "error")); else p.res(m.result);
+      return;
+    }
+    if (m.method === "ui/notifications/tool-result") render(m.params);
+  });
+
+  // ── extract our JSON envelope from a tool result (widget & host paths) ───
+  function envelopeOf(result) {
+    if (!result) return null;
+    var r = result.result || result;                     // some hosts wrap in {result:…}
+    if (r.structuredContent && typeof r.structuredContent === "object") return r.structuredContent;
+    var c = r.content && r.content[0];
+    if (c && typeof c.text === "string") { try { return JSON.parse(c.text); } catch (e) { return null; } }
+    return (r.nodes || r.meta) ? r : null;
+  }
+
+  // ── deterministic circular layout (no physics lib) ──────────────────────
+  var LABEL_COLORS = ["#3b6ef5", "#e0559b", "#22a06b", "#e8912d", "#8a5cf6", "#0ea5b7", "#d1495b", "#6b7280"];
+  function colorFor(label) {
+    var s = String(label || "?"), h = 0;
+    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xffff;
+    return LABEL_COLORS[h % LABEL_COLORS.length];
+  }
+  function labelOf(props, labels) {
+    var p = props || {};
+    return p.name || p.title || p.display_name || p.snippet || p.id || (labels && labels[0]) || "node";
+  }
+
+  function paint(env) {
+    var svg = document.getElementById("svg");
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    var nodes = (env && env.nodes) || [];
+    var edges = (env && env.edges) || [];
+    var W = 640, H = 360, cx = W / 2, cy = H / 2;
+
+    if (!nodes.length) {
+      var t = document.createElementNS(SVGNS, "text");
+      t.setAttribute("x", cx); t.setAttribute("y", cy); t.setAttribute("text-anchor", "middle");
+      t.setAttribute("fill", "var(--fg-dim)"); t.setAttribute("font-size", "13");
+      t.textContent = "graph is empty — waiting for the first write";
+      svg.appendChild(t); return;
+    }
+
+    var drawn = nodes.slice(0, 80);            // cap for legibility
+    var R = Math.min(W, H) / 2 - 34;
+    var pos = {}, n = drawn.length;
+    drawn.forEach(function (nd, i) {
+      var a = (i / n) * Math.PI * 2 - Math.PI / 2;
+      pos[nd.id] = { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) };
+    });
+
+    edges.forEach(function (e) {
+      var a = pos[e.src], b = pos[e.dest];
+      if (!a || !b) return;                    // UI drops edges whose endpoints aren't drawn
+      var ln = document.createElementNS(SVGNS, "line");
+      ln.setAttribute("x1", a.x.toFixed(1)); ln.setAttribute("y1", a.y.toFixed(1));
+      ln.setAttribute("x2", b.x.toFixed(1)); ln.setAttribute("y2", b.y.toFixed(1));
+      ln.setAttribute("stroke", e.relation === "RELATES" ? "var(--accent)" : "var(--edge)");
+      ln.setAttribute("stroke-width", e.relation === "RELATES" ? "1.6" : "1");
+      ln.setAttribute("opacity", "0.7");
+      svg.appendChild(ln);
+    });
+
+    drawn.forEach(function (nd) {
+      var pt = pos[nd.id];
+      var g = document.createElementNS(SVGNS, "g");
+      var c = document.createElementNS(SVGNS, "circle");
+      c.setAttribute("cx", pt.x.toFixed(1)); c.setAttribute("cy", pt.y.toFixed(1));
+      c.setAttribute("r", "6");
+      c.setAttribute("fill", colorFor((nd.labels && nd.labels[0]) || "node"));
+      c.setAttribute("stroke", "var(--bg)"); c.setAttribute("stroke-width", "1.5");
+      var ttl = document.createElementNS(SVGNS, "title");
+      ttl.textContent = ((nd.labels && nd.labels[0]) || "?") + " · " + labelOf(nd.properties, nd.labels);
+      c.appendChild(ttl); g.appendChild(c);
+      if (n <= 26) {
+        var lbl = document.createElementNS(SVGNS, "text");
+        lbl.setAttribute("x", pt.x.toFixed(1));
+        lbl.setAttribute("y", (pt.y - 9).toFixed(1));
+        lbl.setAttribute("text-anchor", "middle");
+        lbl.setAttribute("font-size", "9"); lbl.setAttribute("fill", "var(--fg-dim)");
+        lbl.textContent = String(labelOf(nd.properties, nd.labels)).slice(0, 16);
+        g.appendChild(lbl);
+      }
+      svg.appendChild(g);
+    });
+  }
+
+  function statChip(label, value) {
+    return '<span class="chip">' + label + ' <b>' + value + '</b></span>';
+  }
+  function render(params) {
+    var env = envelopeOf(params);
+    if (!env) { document.getElementById("foot").textContent = "waiting for graph data…"; return; }
+    var meta = env.meta || {};
+    document.getElementById("gkey").textContent = env.graph_key || meta.graph_key || "";
+    var chips = [
+      statChip("nodes", meta.node_count != null ? meta.node_count : (env.nodes || []).length),
+      statChip("edges", meta.edge_count != null ? meta.edge_count : (env.edges || []).length),
+      statChip("typed", meta.real_edges != null ? meta.real_edges : "—"),
+      statChip("total", meta.total_nodes != null ? meta.total_nodes : "—"),
+      statChip("FalkorDB", (meta.run_time_ms != null ? meta.run_time_ms : "—") + " ms")
+    ];
+    var contrib = env.contributors || {};
+    var who = Object.keys(contrib);
+    if (who.length) {
+      who.sort(function (a, b) { return contrib[b] - contrib[a]; });
+      chips.push(statChip("top author", who[0] + "·" + contrib[who[0]]));
+    }
+    document.getElementById("stats").innerHTML = chips.join("");
+    paint(env);
+    document.getElementById("foot").textContent =
+      "live · polling palimpsest_graph through the host every 1.5 s" + (meta.capped ? " · (capped)" : "");
+    sendSize();
+  }
+
+  function pollOnce() {
+    send("tools/call", { name: "palimpsest_graph", arguments: { limit: 120 } })
+      .then(render)
+      .catch(function (e) {
+        document.getElementById("foot").textContent = "poll error: " + (e && e.message || e);
+      });
+  }
+  function startPolling() {
+    if (polling) return;
+    pollOnce();
+    polling = setInterval(pollOnce, 1500);
+  }
+
+  // ── kick off the handshake (guide §2.4) ─────────────────────────────────
+  send("ui/initialize", {
+    protocolVersion: "2026-01-26",
+    appInfo: { name: "palimpsest-graph", version: "1.0.0" },
+    appCapabilities: { availableDisplayModes: ["inline", "fullscreen"] }
+  }).then(markReady).catch(markReady);
+  setTimeout(markReady, 1200);                            // deadlock-proof fallback
+})();
+</script>
