@@ -125,10 +125,17 @@ READ_VERBS: Set[str] = {
 #: be an anonymous DoS lever. Consequence to be aware of: under ``readonly`` the
 #: ablation demo is unavailable, so a box that needs to drive that beat live must
 #: run with the guard ``off`` behind a trusted network.
+#:
+#: ``ringleader`` is here for the same reason as ``ablation``: it READS like an
+#: analytic verb (PageRank/WCC over the co-edit graph) but its first step is a
+#: ``MERGE`` that projects the weighted ``CO_EDITED_WITH`` layer into the graph —
+#: an idempotent, additive write, but a write. Classifying it READ would let a
+#: ``readonly`` deployment mutate the graph and break the guard's core promise.
 WRITE_VERBS: Set[str] = {
     "remember",
     "relate",
     "ablation",
+    "ringleader",
     "stream_publish",
     "stream_replay",
     "act",

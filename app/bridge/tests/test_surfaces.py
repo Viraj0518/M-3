@@ -30,7 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 #: Verbs implemented against FalkorDB (memory plane) + the now-LIVE stream verbs
 #: wired to the LaserData spine (realtime/ lane).
 LIVE_VERBS = {
-    "remember", "relate", "recall", "ring", "ablation", "graph",
+    "remember", "relate", "recall", "ring", "ringleader", "ablation", "graph",
     "handover_write", "handover_read", "ask",
     "stream_publish", "stream_tail", "stream_replay",
 }
@@ -43,7 +43,7 @@ STUB_VERBS = {"act"}
 
 def test_table_covers_exactly_the_declared_verbs():
     assert set(bridge.VERBS) == LIVE_VERBS | STUB_VERBS
-    assert len(bridge.VERBS) == 13
+    assert len(bridge.VERBS) == 14
 
 
 def test_act_is_still_an_honest_stub():
@@ -136,7 +136,7 @@ def test_mcp_module_imports_without_the_sdk():
         "assert s.MCP_AVAILABLE is False\n"
         "import app.bridge.graphstore as g\n"
         "assert g.FALKORDB_AVAILABLE is False\n"
-        "assert len(s.all_tools()) == 13\n"
+        "assert len(s.all_tools()) == 14\n"
         "import json; json.dumps(s.openapi_spec())\n"
         "print('OK')\n"
     ).format(str(REPO_ROOT))
@@ -168,7 +168,7 @@ def test_server_py_imports_on_python_39():
         cwd=str(REPO_ROOT),
     )
     assert out.returncode == 0, out.stderr
-    assert "13" in out.stdout
+    assert ") 14" in out.stdout
 
 
 # ── surface (c): OpenAPI 3.0 — the ONE Guild Integration ────────────────────
@@ -289,7 +289,7 @@ def _cli(*args):
 def test_cli_lists_tools():
     out = _cli("--list-tools")
     assert out.returncode == 0
-    assert len(out.stdout.strip().splitlines()) == 13
+    assert len(out.stdout.strip().splitlines()) == 14
     assert "palimpsest_remember" in out.stdout
 
 
@@ -326,7 +326,7 @@ def test_cli_unknown_verb_is_an_honest_error():
     assert out.returncode == 1
     payload = json.loads(out.stdout)
     assert payload["code"] == "UNKNOWN_TOOL"
-    assert len(payload["known"]) == 13
+    assert len(payload["known"]) == 14
 
 
 # ── the router chokepoint ───────────────────────────────────────────────────
