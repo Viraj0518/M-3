@@ -1,0 +1,10 @@
+extends: _common.yaml
+arm: a3_palimpsest
+final_top_k: 12
+s2_fanout: 12
+keep_graph: false
+ablate:
+  supersede: false
+  temporal: false
+  expansion: false
+  sufficiency: false

@@ -1,0 +1,27 @@
+# Shared defaults. Every config below inherits these via `extends: _common.yaml`.
+# EVERY value here is inside `config_hash` (T10) -- changing one makes a new
+# experiment, not a tweak.
+seed: 20260803
+
+pins:
+  embedder: text-embedding-3-small@256
+  extractor: claude-haiku-4-5-20251001
+  reader: claude-sonnet-4-6-20260514
+  judge_official: gpt-4o-2024-08-06
+  # T7: no panel member may share the reader's family (anthropic).
+  judge_strict_panel:
+    - gpt-4o-2024-08-06
+    - gemini-1.5-pro-002
+    - meta-llama/Meta-Llama-3.1-70B-Instruct
+
+sampling:
+  temperature: 0.0
+  top_p: 1.0
+  reader_max_tokens: 512
+
+# Explicit opt-in stubs. NEVER selected by a missing key -- see embed.py/reader.py.
+test_embedder: false
+test_reader: false
+test_extractor: false
+
+final_top_k: 12          # prior-art constant from the 0.82 config

@@ -1,0 +1,7 @@
+extends: _common.yaml
+arm: a2_unblock
+# OPTIONAL, off the gate path, needs the live Kaeva backend (violates GOAL.md's
+# zero-live-dependency rule). Reader prompt is SERVER-SIDE = uncontrolled.
+final_top_k: 10
+eval_tenant_id: lme
+timeout_s: 60

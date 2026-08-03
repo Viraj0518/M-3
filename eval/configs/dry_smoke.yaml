@@ -1,0 +1,27 @@
+extends: _common.yaml
+arm: OVERRIDDEN_BY_--arm
+# THE DRY / NO-KEY PATH. Every stub is opted into EXPLICITLY here; none of them
+# can be reached by a missing key. Any run using this config is stamped
+# non-citable in the manifest and its qa.* numbers are meaningless by design --
+# it proves PLUMBING (retrieval, graph, guards, metrics, gate), not quality.
+test_embedder: true
+test_reader: true
+test_extractor: true
+pins:
+  embedder: hash-test-embedder@256
+  extractor: heuristic-test-extractor
+  reader: extractive-test-reader
+  judge_official: gpt-4o-2024-08-06
+  judge_strict_panel:
+    - gpt-4o-2024-08-06
+    - gemini-1.5-pro-002
+    - meta-llama/Meta-Llama-3.1-70B-Instruct
+final_top_k: 12
+s2_fanout: 12
+chunk_turns: 4
+chunk_stride: 2
+ablate:
+  supersede: false
+  temporal: false
+  expansion: false
+  sufficiency: false

@@ -1,0 +1,6 @@
+extends: _common.yaml
+arm: a1_naive_rag
+# THE HONEST BASELINE. Same reader, same prompt, same judge, same k as A3.
+final_top_k: 12
+chunk_turns: 4
+chunk_stride: 2

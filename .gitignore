@@ -34,3 +34,5 @@ eval/data/*.json
 
 # runtime artifacts (a running bridge writes these)
 *.pid
+eval/.cache/
+eval/runs/

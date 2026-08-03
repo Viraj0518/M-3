@@ -1,0 +1,10 @@
+extends: a3_palimpsest.yaml
+arm: a3_ablate_supersede
+# REMOVAL TEST. Exactly one mechanism deleted vs a3_palimpsest; everything else
+# byte-identical. Reuses cached embeddings + cached extractions, so this costs
+# reader+judge only.
+ablate:
+  supersede: true
+  temporal: false
+  expansion: false
+  sufficiency: false

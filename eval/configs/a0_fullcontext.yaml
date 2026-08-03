@@ -1,0 +1,6 @@
+extends: _common.yaml
+arm: a0_fullcontext
+# A0 has no retrieval. Its "budget" is the whole haystack, so it is EXEMPT from
+# the T12 equal-k table and reported separately.
+final_top_k: 10000
+max_context_chars: 0     # 0 = unbounded; any non-zero value is a recorded confound
