@@ -50,3 +50,6 @@ vendor/
 
 # cloudflare local build state
 .wrangler/
+
+# firehose capture — large + regenerable via realtime/producer.py --source
+demo/*.ndjson
