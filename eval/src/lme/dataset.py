@@ -375,6 +375,7 @@ def stratified_ids(
     *,
     per_type: Optional[int] = None,
     total: Optional[int] = None,
+    top_up_to: Optional[int] = None,
     seed: int = 20260803,
 ) -> List[str]:
     """Stratified sample over `question_type`.
@@ -383,9 +384,24 @@ def stratified_ids(
     allocation with a largest-remainder pass (dev-150). Deterministic given the
     seed: buckets are sorted by id before sampling so the file order of the
     source JSON cannot change the outcome.
+
+    `top_up_to` (only with `per_type`) -> a FLOOR of k per type, then the
+    remaining `top_up_to - k*len(QUESTION_TYPES)` rows go to the LARGEST buckets
+    by dataset population, ties broken by type name. This exists because a smoke
+    size need not divide evenly by the 6 types (smoke-40: floor 6, +4). It keeps
+    the smoke idiom -- every type gets a workable floor so every code path is
+    exercised -- rather than the proportional idiom, which would starve
+    `single-session-preference` (n=30 -> 2 rows at n=40) and leave the
+    supersede/temporal mechanisms under-sampled.
+
+    With `top_up_to=None` the allocation is `per_type` for every bucket, so the
+    rng call sequence is byte-identical to the pre-`top_up_to` implementation
+    and smoke-30 regenerates to its locked `ids_sha256`.
     """
     if (per_type is None) == (total is None):
         raise ValueError("pass exactly one of per_type= or total=")
+    if top_up_to is not None and per_type is None:
+        raise ValueError("top_up_to= requires per_type= (it is a floor, not a total)")
 
     buckets: Dict[str, List[str]] = {t: [] for t in QUESTION_TYPES}
     for q in questions:
@@ -397,11 +413,29 @@ def stratified_ids(
     picked: List[str] = []
 
     if per_type is not None:
+        alloc = {t: per_type for t in QUESTION_TYPES}
+        if top_up_to is not None:
+            extra = top_up_to - per_type * len(QUESTION_TYPES)
+            if extra < 0:
+                raise ValueError(
+                    f"top_up_to={top_up_to} is below the floor "
+                    f"{per_type}*{len(QUESTION_TYPES)}={per_type * len(QUESTION_TYPES)}"
+                )
+            if extra > len(QUESTION_TYPES):
+                raise ValueError(
+                    f"top_up_to={top_up_to} needs {extra} extra rows over "
+                    f"{len(QUESTION_TYPES)} types; raise per_type instead so the "
+                    "allocation stays one-extra-per-bucket and unambiguous"
+                )
+            # Largest buckets by POPULATION, ties by type name -> seed-independent
+            # and stable under any reordering of the source JSON.
+            for t in sorted(QUESTION_TYPES, key=lambda t: (-len(buckets.get(t, [])), t))[:extra]:
+                alloc[t] += 1
         for t in QUESTION_TYPES:
             pool = buckets.get(t, [])
-            if len(pool) < per_type:
-                raise ValueError(f"type {t!r} has {len(pool)} rows, need {per_type}")
-            picked.extend(rng.sample(pool, per_type))
+            if len(pool) < alloc[t]:
+                raise ValueError(f"type {t!r} has {len(pool)} rows, need {alloc[t]}")
+            picked.extend(rng.sample(pool, alloc[t]))
     else:
         n_all = sum(len(v) for v in buckets.values())
         assert total is not None
@@ -426,6 +460,7 @@ def make_split(
     *,
     per_type: Optional[int] = None,
     total: Optional[int] = None,
+    top_up_to: Optional[int] = None,
     all_rows: bool = False,
     seed: int = 20260803,
 ) -> Split:
@@ -433,8 +468,14 @@ def make_split(
         ids = sorted(q.question_id for q in dataset.questions)
         strategy = "all"
     elif per_type is not None:
-        ids = stratified_ids(dataset.questions, per_type=per_type, seed=seed)
-        strategy = f"stratified/{per_type}-per-type"
+        ids = stratified_ids(
+            dataset.questions, per_type=per_type, top_up_to=top_up_to, seed=seed
+        )
+        if top_up_to is None:
+            strategy = f"stratified/{per_type}-per-type"
+        else:
+            extra = top_up_to - per_type * len(QUESTION_TYPES)
+            strategy = f"stratified/{per_type}-per-type+{extra}-largest-buckets"
     else:
         ids = stratified_ids(dataset.questions, total=total, seed=seed)
         strategy = f"stratified-proportional/{total}"

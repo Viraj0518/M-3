@@ -73,8 +73,8 @@ def test_strip_gold_removes_has_answer():
 
 
 # ── splits ──────────────────────────────────────────────────────────────────
-def test_all_three_splits_lock_against_the_registry():
-    for name, n in (("smoke-30", 30), ("dev-150", 150), ("full-500", 500)):
+def test_all_splits_lock_against_the_registry():
+    for name, n in (("smoke-30", 30), ("smoke-40", 40), ("dev-150", 150), ("full-500", 500)):
         sp = ds.load_split(name)
         assert sp.n == n
         assert sp.ids_sha256 == ds.sha256_ids(sp.ids)
@@ -87,6 +87,58 @@ def test_smoke30_is_stratified_five_per_type():
     d = ds.load_dataset(ds.DATA_DIR / "longmemeval_oracle.json")
     _, qs = ds.resolve(d, "smoke-30")
     assert dict(Counter(q.question_type for q in qs)) == {t: 5 for t in ds.QUESTION_TYPES}
+
+
+def test_smoke40_is_six_per_type_plus_four_largest_buckets():
+    """40 does not divide by 6. The allocation is a FLOOR of 6 per type, then +1
+    to each of the 4 largest buckets by population -- so every type keeps a
+    workable floor and no mechanism goes under-sampled."""
+    from collections import Counter
+
+    d = ds.load_dataset(ds.DATA_DIR / "longmemeval_oracle.json")
+    _, qs = ds.resolve(d, "smoke-40")
+    got = dict(Counter(q.question_type for q in qs))
+    assert got == {
+        "multi-session": 7,          # pop 133
+        "temporal-reasoning": 7,     # pop 133
+        "knowledge-update": 7,       # pop  78
+        "single-session-user": 7,    # pop  70
+        "single-session-assistant": 6,
+        "single-session-preference": 6,
+    }
+    assert sum(got.values()) == 40
+    assert set(got) == set(ds.QUESTION_TYPES)  # every type represented
+
+
+def test_top_up_to_is_deterministic_and_does_not_disturb_plain_per_type():
+    """The regression that matters: adding `top_up_to` must leave the EXISTING
+    locked splits byte-identical, because `top_up_to=None` has to reproduce the
+    original rng call sequence exactly."""
+    d = ds.load_dataset(ds.DATA_DIR / "longmemeval_oracle.json")
+
+    a = ds.make_split("tmp", d, per_type=6, top_up_to=40, seed=20260803)
+    b = ds.make_split("tmp", d, per_type=6, top_up_to=40, seed=20260803)
+    assert a.ids_sha256 == b.ids_sha256 == ds.load_split("smoke-40").ids_sha256
+    assert a.strategy == "stratified/6-per-type+4-largest-buckets"
+    assert len(set(a.ids)) == 40  # no duplicates across the top-up pass
+
+    # a different seed is a different split
+    assert ds.make_split("tmp", d, per_type=6, top_up_to=40, seed=1).ids_sha256 != a.ids_sha256
+
+    # and the un-topped-up path still reproduces the committed smoke-30 lock
+    plain = ds.make_split("tmp", d, per_type=5, seed=20260803)
+    assert plain.ids_sha256 == ds.load_split("smoke-30").ids_sha256
+    assert plain.strategy == "stratified/5-per-type"
+
+
+def test_top_up_to_refuses_incoherent_allocations():
+    d = ds.load_dataset(ds.DATA_DIR / "longmemeval_oracle.json")
+    with pytest.raises(ValueError):  # below the floor
+        ds.make_split("tmp", d, per_type=6, top_up_to=30, seed=20260803)
+    with pytest.raises(ValueError):  # more extras than buckets -> ambiguous
+        ds.make_split("tmp", d, per_type=6, top_up_to=50, seed=20260803)
+    with pytest.raises(ValueError):  # top_up_to is a floor modifier, not a total
+        ds.stratified_ids(d.questions, total=40, top_up_to=40, seed=20260803)
 
 
 def test_split_generation_is_deterministic_under_the_seed():
