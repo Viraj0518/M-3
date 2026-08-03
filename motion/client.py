@@ -6,11 +6,15 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 
 from rocketride import RocketRideClient
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))  # documented invocation is `python3.12 motion/client.py`
+from memory import config  # noqa: E402 -- single source of constants; do not re-derive here
+
 EVENTS = ["task", "summary", "flow", "output", "sse"]
 
 
@@ -22,7 +26,7 @@ async def main() -> int:
     args = parser.parse_args()
 
     pipeline = json.loads((HERE / "palimpsest.pipe").read_text())
-    client = RocketRideClient(uri=os.getenv("ROCKETRIDE_URL", "ws://127.0.0.1:5565"), auth=os.getenv("ROCKETRIDE_API_KEY", "MYAPIKEY"))
+    client = RocketRideClient(uri=config.ROCKETRIDE_URL, auth=config.ROCKETRIDE_API_KEY)
     await client.connect()
     token = None
     try:
