@@ -30,3 +30,4 @@ dist/
 *.rdb
 falkordb-data/
 *.log
+eval/data/*.json
