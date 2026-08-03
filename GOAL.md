@@ -60,6 +60,30 @@ PALIMPSEST is that sentence built on the four mandatory sponsor techs:
    Discords, both fleet boxes. Comms partner on Windows: DM `viraj-hackathon-windows` (ack-verified),
    coordinate continuously.
 
+## Sponsor-stack mandate (operator, 2026-08-03) + integrity rules
+
+**Use every sponsor technology and everything they provide.** All four are mandatory and
+load-bearing; judges verify actual usage. Use the FULL relevant offering of each:
+- **FalkorDB** — Cypher ring/supersede/hybrid-vector queries + GraphRAG-SDK for pre-bake. ✅ live.
+- **LaserData** — Log spine + durable replay-from-offset. ✅ live (Log primitive; graph()/memory()
+  deliberately unused so FalkorDB stays the memory layer — an intentional, defensible boundary).
+- **RocketRide** — the .pipe IS the orchestration (Wave planner, first-party tool_falkordb). 🔧 being
+  wired (motion/ draft PR #3); MUST be real, not a UI simulation.
+- **Guild.ai** — multi-agent coordination + human approval. ⛔ THE GAP — blocked on sponsor SEATS
+  (human: email + booth). This is the one sponsor we are not yet using.
+
+**Where a sponsor does NOT provide what we need, add other technology** — but only as a labelled
+substitute, never a fake. If Guild seats never materialize, the multi-agent coordination + human gate
+is provided by the plan's fallback (RocketRide sub-agents + the bridge `ask` verb), stated honestly
+on stage. Do not present a substitute as the sponsor's tech.
+
+**INTEGRITY (from the 2026-08-03 adversarial audit — non-negotiable):** NOTHING may be simulated and
+presented as real. The UI renders a ring ONLY when the server returns `fired:true` with real paths —
+never fabricate one. In LIVE mode the UI never claims sponsor actions (Guild/RocketRide) that did not
+actually fire. The cold-vs-warm ablation must be a REAL opposite-verdict (warm fires / cold doesn't on
+the same event), not a truncated graph. The eval harness must never emit a citable number that bypasses
+its own anti-phantom guards. A demo that fakes load-bearing use loses on the judging criterion.
+
 ## Guardrails
 
 - Nothing new starts after Gate 5 (T+5:00). Feature freeze T+6:30. Code freeze + tag T+7:00.
