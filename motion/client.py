@@ -35,7 +35,8 @@ async def main() -> int:
         await client.set_events(token, EVENTS)
         frames: list[object] = []
 
-        def on_sse(frame: object) -> None:
+        async def on_sse(event_type: str, data: object) -> None:
+            frame = {"type": event_type, "data": data}
             frames.append(frame)
             print(json.dumps({"sse": frame}, default=str))
 
@@ -46,9 +47,11 @@ async def main() -> int:
         print(json.dumps(receipt, default=str))
         return 0
     finally:
-        if token:
-            await client.terminate(token)
-        await client.disconnect()
+        try:
+            if token:
+                await client.terminate(token)
+        finally:
+            await client.disconnect()
 
 
 if __name__ == "__main__":

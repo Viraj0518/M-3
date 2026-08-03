@@ -7,11 +7,12 @@ hour 6, which is when the pipeline stops being debuggable.
 Companion file: [`memory/SCHEMA.md`](../memory/SCHEMA.md) — same trap register,
 graph schema and FalkorDB detail.
 
-Runnable artifact: [`palimpsest.pipe`](./palimpsest.pipe). Validate it without
-an LLM key using `python motion/client.py --validate-only`; run the full Wave
-with `ANTHROPIC_API_KEY` set and optionally persist the trace with
-`--trace plan/gates/rocketride-wave-trace.json` (the trace file is intentionally
-left untracked until it has been reviewed for provider output and secrets).
+Runnable artifact: [`palimpsest.pipe`](./palimpsest.pipe). Install the pinned
+client with `python3.12 -m pip install -r motion/requirements.txt`, then validate
+without an LLM key using `python3.12 motion/client.py --validate-only`. Run the
+full Wave with `ANTHROPIC_API_KEY` set and optionally persist the raw trace under
+`motion/traces/`; that directory is ignored because full traces can contain
+provider prompts/results. Publish only a separately reviewed, sanitized receipt.
 
 Single source of constants: **`memory/config.py`**.
 
@@ -39,17 +40,17 @@ detail for traps 5-9 is here; 1-4 and 10 are detailed in `SCHEMA.md`.
 
 ## 1. The pipeline, in one paragraph
 
-`motion/palimpsest.pipe` is ~130 lines of JSON; our Python is ~40 lines.
+`motion/palimpsest.pipe` is the minimal load-bearing NOW + EVER pipeline. The
+current draft intentionally excludes actions, MCP, and researcher delegation;
+those stay follow-ups until this two-tool Wave is proven live.
 
 ```
 webhook_1 -> question_1 -> agent_rocketride "Commander" (Wave planner, max_waves=12)
                              |
               control-attached:  llm_anthropic (Claude Sonnet)
                                  memory_internal
-                                 tool_falkordb (127.0.0.1:6401, graph=palimpsest, allow_writes=true)
-                                 tool_http_request (Discord webhook + GitHub API)
-                                 mcp_client (our bridge)
-                                 researcher sub-agent (own llm_anthropic Haiku + memory_internal)
+                                 tool_falkordb (127.0.0.1:6401, graph=palimpsest, read-only)
+                                 tool_http_request (bridge /health, GET-only)
                              |
                           response_answers
 ```

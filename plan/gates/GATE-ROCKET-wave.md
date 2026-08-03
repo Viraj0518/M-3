@@ -32,13 +32,13 @@ The final validator chain contained all eight nodes. The pipeline fixes
 ## Live acceptance command
 
 ```bash
-ANTHROPIC_API_KEY=... python motion/client.py \
-  --trace plan/gates/rocketride-wave-trace.json \
+ANTHROPIC_API_KEY=... python3.12 motion/client.py \
+  --trace motion/traces/rocketride-wave-trace.json \
   "Use NOW and EVER to decide whether the current case should escalate."
 ```
 
-Leave the raw trace untracked until it is inspected for provider output and
-secrets. This gate becomes GREEN only when the reviewed receipt proves one Wave
+Raw traces are ignored under `motion/traces/`; inspect and sanitize one before
+publishing a receipt. This gate becomes GREEN only when that reviewed receipt proves one Wave
 contained both `http.http_request` and `falkordb.query` and the final decision
 cites both results. Structural validation alone is deliberately not called a
 live integration pass.

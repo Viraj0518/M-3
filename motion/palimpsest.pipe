@@ -27,7 +27,7 @@
             "agent_description": "Combine live system state (NOW) with attributed FalkorDB memory (EVER) and return an evidence-backed ESCALATE or DISMISS decision.",
             "instructions": [
               "Your first wave must contain exactly two independent tool calls in the same batch so RocketRide runs them in parallel.",
-              "Call http.http_request with GET http://127.0.0.1:8931/v1/health for the live NOW signal.",
+              "Call http.http_request with GET http://127.0.0.1:8931/health for the live NOW signal.",
               "Call falkordb.query against graph palimpsest with a read-only Cypher query for the historical EVER signal; choose the query yourself after inspecting the available tool schema.",
               "After both results arrive, return ESCALATE or DISMISS and cite one concrete fact from each tool result. Never invent missing data."
             ],
