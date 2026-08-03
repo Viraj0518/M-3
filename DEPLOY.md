@@ -34,6 +34,17 @@ local-only, kernel-gated service — see below).
   MCP at `/mcp`, OpenAPI at `/v1/openapi.json`, projector mirror at `/ui/`.
 - App: `palimpsest-bridge` (Fly.io, org `personal`, region `sjc`).
 
+> ⚠️ **This endpoint is public and has no authentication.** `identity.py` is an
+> *attribution* layer, not an authentication one, and its ladder ends at the
+> spoofable `x-palimpsest-agent` header — so any caller can write to the graph
+> *and* choose whose name is on the write. Verified 2026-08-03:
+> `POST https://palimpsest-bridge.fly.dev/v1/remember` with an empty body returns
+> `400 MISSING_CONTENT`, i.e. argument validation is the only thing between an
+> anonymous caller and a graph write. Until the auth lane (PR #2) merges *and* is
+> switched on, run any public deployment with `PALIMPSEST_PUBLIC_MODE=readonly`.
+> Full picture, the exposure contract for this deploy, and the client onboarding
+> flow: **[`docs/MCP.md`](docs/MCP.md)**.
+
 **Architecture — ONE self-contained machine.** A single Fly container runs *both*
 FalkorDB (redis-server + the graph module, on `127.0.0.1:6401` inside the container)
 *and* the bridge (`0.0.0.0:8931`), so the hosted demo needs no external database. On

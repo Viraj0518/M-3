@@ -79,7 +79,7 @@ from memory.taxonomy import (
     normalize_block_type,
 )
 
-from . import graphstore, identity
+from . import graphstore, guard, identity
 
 # ─── MCP SDK, guarded ───────────────────────────────────────────────────────
 # The module must IMPORT CLEANLY with or without the SDK installed, so the
@@ -1891,6 +1891,18 @@ async def dispatch(
         )
 
     method, path_template, builder, handler = entry
+
+    # PUBLIC-EXPOSURE GUARD. Inert unless PALIMPSEST_PUBLIC_MODE is set, so this
+    # is a no-op on every existing deployment. It sits HERE — before the builder,
+    # before identity resolution, before any handler work — because a refused
+    # verb should touch nothing. Guarding at this chokepoint is what makes ONE
+    # check cover every NETWORK surface; an HTTP middleware would cover REST
+    # only, since an MCP tool call's verb lives in a JSON-RPC body, not the path.
+    # `surface` is hardcoded by each entry point, never caller-supplied, so the
+    # local-surface exemption (which keeps seed_demo working at boot) is safe.
+    refused = guard.refusal(verb, surface=surface)
+    if refused is not None:
+        return refused
 
     try:
         path = path_template.format(**arguments)
