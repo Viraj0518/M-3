@@ -24,6 +24,10 @@ PALIMPSEST is that sentence built on the four mandatory sponsor techs:
    (removal test per sponsor — judges get receipts, not claims).
 3. **Two clean un-narrated 90-second runs** on the demo laptop by T+7:30, different driver each.
 4. Real action fired (Discord + GitHub issue) with clickable provenance; kill-and-resume rehearsed until boring.
+5. **LongMemEval**: this stack + the unblock stack benchmarked on LongMemEval with the best score
+   we can produce across ALL question types — fully REPRODUCIBLE (pinned dataset, pinned seeds,
+   harness + configs committed under `eval/`, one-command rerun). Prior LME work in
+   `~/unblock-eval/` (judge scripts, strict rubric, v2 plans) is the head start — reuse it.
 
 ## Operating directives (operator, 2026-08-03)
 
@@ -47,6 +51,14 @@ PALIMPSEST is that sentence built on the four mandatory sponsor techs:
 7. **Definition of done for every milestone**: commit to the repo → build & start a FRESH Docker
    container of the stack → remove the old containers → run a full end-to-end walkthrough on the
    fresh stack. Nothing counts as done on a warm, hand-tweaked environment.
+8. **Interactive MCP widgets** — research the MCP interactive-widget ecosystem (MCP Apps / mcp-ui /
+   ext-apps class of repos) and make our bridge's MCP tools return INTERACTIVE widgets where a host
+   supports them (graph view, approval card), with plain-text fallback. Verify MCP + CLI surfaces
+   end-to-end, everything.
+9. **Standing research agent + use every resource** — keep a research agent running throughout;
+   exhaust every relevant available resource: local repo clones, prior LongMemEval work, sponsor
+   Discords, both fleet boxes. Comms partner on Windows: DM `viraj-hackathon-windows` (ack-verified),
+   coordinate continuously.
 
 ## Guardrails
 
