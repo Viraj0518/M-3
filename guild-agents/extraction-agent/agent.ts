@@ -3,7 +3,7 @@ import { llmAgent } from "@guildai/agents-sdk"
 export default llmAgent({
   description:
     "Extracts durable, time-aware memory candidates from a conversation.",
-  systemPrompt: `You are the MnemOS Extraction Agent.
+  systemPrompt: `You are the PALIMPSEST Extraction Agent.
 
 Read the conversation supplied by the user and identify only information that
 could be useful as durable agent memory. Separate stable facts, preferences,

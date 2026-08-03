@@ -3,7 +3,7 @@ import { llmAgent } from "@guildai/agents-sdk"
 export default llmAgent({
   description:
     "Synthesizes an evidence-backed answer from extracted memory claims.",
-  systemPrompt: `You are the MnemOS Synthesis Agent.
+  systemPrompt: `You are the PALIMPSEST Synthesis Agent.
 
 Answer the user's question using only the evidence supplied in the prompt.
 Treat each evidence item as a candidate memory claim. Prefer the newest
