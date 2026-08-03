@@ -75,6 +75,12 @@ def test_uses_explicit_stream_and_bytes_routing_key():
     payload, key = topic.producer_instance.sent[0]
     assert payload == b'{"wiki": "enwiki"}'
     assert key == b"enwiki"
+    # Pin the producer contract kwargs — "producer retries" is a headline claim,
+    # so a regression that drops or changes retries=3 must fail the suite.
+    assert topic.producer_kwargs["retries"] == 3
+    assert topic.producer_kwargs["partitions"] == 4
+    assert "batch_length" in topic.producer_kwargs
+    assert "linger_ms" in topic.producer_kwargs
 
 
 def test_ensure_failure_is_not_hidden():

@@ -186,6 +186,11 @@ class LaserLog:
         long-lived bridge should not keep reporting the capability snapshot from
         before a restart. This mirrors the SDK's refresh_capabilities seam while
         keeping this project on the Log primitive only.
+
+        NOT YET WIRED: no caller invokes this today — ``app/bridge/stream.py``
+        caches its ``LaserLog`` for the process lifetime and never re-probes.
+        This is scaffolding for a reconnect/periodic-refresh hook; until that
+        lands the capability snapshot is only as fresh as the last connect.
         """
         self.capabilities = await self._read_capabilities(self._laser)
         return dict(self.capabilities)
