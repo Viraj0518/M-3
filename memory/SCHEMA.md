@@ -105,8 +105,11 @@ CREATE INDEX FOR (a:Actor) ON (a.name)
 CREATE INDEX FOR (p:Page)  ON (p.title)
 CREATE INDEX FOR (c:Case)  ON (c.id)
 
-CALL db.idx.vector.createNodeIndex('Claim', 'emb', 256, 'cosine')
-CALL db.idx.vector.createNodeIndex('Event', 'emb', 256, 'cosine')
+-- NOTE (verified live on FalkorDB graph v42001, 2026-08-03): the createNodeIndex
+-- PROCEDURE is NOT registered on this build. Index CREATION is DDL; the QUERY
+-- procedure is still positional 4-arg db.idx.vector.queryNodes. See app/bridge/graphstore.py.
+CREATE VECTOR INDEX FOR (c:Claim) ON (c.emb) OPTIONS {dimension: 256, similarityFunction: 'cosine'}
+CREATE VECTOR INDEX FOR (e:Event) ON (e.emb) OPTIONS {dimension: 256, similarityFunction: 'cosine'}
 ```
 
 `256` is `config.EMBED_DIM` and it MUST equal the embedder's `dimensions=256`.

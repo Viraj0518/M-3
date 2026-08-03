@@ -150,7 +150,7 @@ ROCKETRIDE_API_KEY: str = _env("ROCKETRIDE_API_KEY", "MYAPIKEY")
 
 # ── BRIDGE ──────────────────────────────────────────────────────────────────
 BRIDGE_HOST: str = _env("BRIDGE_HOST", "127.0.0.1")
-BRIDGE_PORT: int = _env_int("BRIDGE_PORT", 8787)
+BRIDGE_PORT: int = _env_int("BRIDGE_PORT", 8931)
 
 
 # ── EDGE TAP ────────────────────────────────────────────────────────────────
