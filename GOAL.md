@@ -25,6 +25,29 @@ PALIMPSEST is that sentence built on the four mandatory sponsor techs:
 3. **Two clean un-narrated 90-second runs** on the demo laptop by T+7:30, different driver each.
 4. Real action fired (Discord + GitHub issue) with clickable provenance; kill-and-resume rehearsed until boring.
 
+## Operating directives (operator, 2026-08-03)
+
+1. **Collaborate across the whole fleet** — use ALL resources on both the Mac and the Windows box.
+   Coordination plane: unblock DMs to `viraj-hackathon` (ndjson bridge) + this repo. Split work so
+   both machines are always busy; the Windows box takes the final-deploy lane.
+2. **Make the bridge MCP genuinely interactive** — study existing MCP server repos (unblock_mcp
+   first, plus official MCP SDK examples) and wire interactive capability (elicitation/prompts,
+   streaming progress) into our bridge's MCP surface, not just flat request/response tools.
+3. **Open-sourceable from commit zero** — NO credentials anywhere in the repo, ever: no keys, no
+   `.env` committed, no tokens in code or history. Everything runs **locally** or **bring-your-own-key**
+   (`.env.example` documents every variable; secret-scan before every commit — a leaked key in git
+   history cannot be un-leaked).
+4. **Everything local, on Docker** — all services containerized and run locally (FalkorDB, laser-stack,
+   the bridge, the UI). Docker Desktop install is a pre-event blocker for any box missing it; the
+   embedded-falkordblite path stays as the no-Docker fallback ladder only.
+5. **Codex owns UI/UX design**; **Fable 5 plans/coordinates**; **Opus 5 subagents build** — make the
+   product the best it can be with the right model on each lane.
+6. **Reuse unblock aggressively** and make the four sponsor techs (FalkorDB · LaserData · RocketRide ·
+   Guild) STRONGLY integrated — load-bearing with removal tests, never decorative.
+7. **Definition of done for every milestone**: commit to the repo → build & start a FRESH Docker
+   container of the stack → remove the old containers → run a full end-to-end walkthrough on the
+   fresh stack. Nothing counts as done on a warm, hand-tweaked environment.
+
 ## Guardrails
 
 - Nothing new starts after Gate 5 (T+5:00). Feature freeze T+6:30. Code freeze + tag T+7:00.

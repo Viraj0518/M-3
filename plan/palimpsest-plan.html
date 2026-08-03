@@ -125,6 +125,15 @@ html { scroll-behavior: smooth; }
 <tr><td class="k">Pulls instead of asks</td><td>RocketRide Wave planner fetches NOW + recalls EVER in ONE parallel wave; Guild <code>task.gather</code> fans specialists out concurrently. The ONLY question ever sent to a human is the one worth asking: <em>approval to act</em> (<code>ui_prompt</code>) — never context it can fetch itself</td><td>Single-turn resolution: question in → verdict + provenance out, zero clarifying questions. Cold twin asks; warm twin answers</td></tr>
 </tbody></table></div>
 <p class="note"><b>Judge-legible metric — put it on screen:</b> a <code>turns-to-answer</code> counter on both panels of the COLD|WARM split. Cold: "I need more context — which pages? which timeframe?" (turns: 3+). Warm: verdict with provenance (turns: 1). Same model, same prompt; the difference is the product.</p>
+<h3>Operating directives (operator, 2026-08-03)</h3>
+<ul>
+<li><b>Fleet-wide collaboration</b> — use all resources on both the Mac and the Windows box; coordinate via unblock DMs to <code>viraj-hackathon</code> + the repo. Windows takes the final-deploy lane.</li>
+<li><b>Interactive MCP</b> — study existing MCP server repos (unblock_mcp, official SDK examples) and give the bridge's MCP surface interactive capability (elicitation, streaming progress), not just flat tools.</li>
+<li><b>Open-sourceable from commit zero</b> — no credentials anywhere (repo or history); everything runs locally or bring-your-own-key with a documented <code>.env.example</code>; secret-scan before every commit.</li>
+<li><b>Everything local, on Docker</b> — all services containerized; embedded-falkordblite remains fallback-ladder only. Docker Desktop install = pre-event blocker on any box missing it.</li>
+<li><b>Model lanes</b> — codex owns UI/UX design; Fable 5 plans and coordinates; Opus 5 subagents build.</li>
+<li><b>Milestone definition of done</b> — commit → build &amp; start a FRESH container stack → remove old containers → full end-to-end walkthrough on the fresh stack. Never "done" on a warm environment.</li>
+</ul>
 </section>
 
 <section id="why"><h2>Why this concept wins</h2><p class="">WINNER: a merge, with PALIMPSEST as the spine. All three concepts converged on the same physical stack (falkordblite on TCP, laser-stack Log-only, one .pipe, four Guild agents, one OpenAPI bridge) — so the real choice was between three NARRATIVES and three PROOF STRATEGIES, and each won a different category.</p>
