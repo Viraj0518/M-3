@@ -225,7 +225,12 @@ def test_t14_live_router_source_is_gold_free():
 
     import lme.graph.retrieve as r
 
-    guards.t14_scan_source(Path(r.__file__).read_text(), symbol="graph/retrieve.py")
+    # encoding= is explicit: the harness sources are UTF-8, and Path.read_text()
+    # defaults to the LOCALE encoding (cp1252 on a stock Windows box), which
+    # raises UnicodeDecodeError on the box-drawing characters in these files.
+    guards.t14_scan_source(
+        Path(r.__file__).read_text(encoding="utf-8"), symbol="graph/retrieve.py"
+    )
 
 
 # ── T15 ─────────────────────────────────────────────────────────────────────

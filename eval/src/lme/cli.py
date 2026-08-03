@@ -37,6 +37,15 @@ def cmd_splits(args: argparse.Namespace) -> int:
         sp = ds.make_split("smoke-30", oracle, per_type=5, seed=args.seed)
         ds.write_split(sp)
         made.append(f"smoke-30      n={sp.n:3d}  {sp.dataset_file}  {sp.ids_sha256[:16]}…")
+    if not args.only or args.only == "smoke-40":
+        oracle = ds.load_dataset(ORACLE)
+        _sanity_taxonomy(oracle)
+        # 40 does not divide by the 6 types: floor 6 each (=36), then +1 to each
+        # of the 4 largest buckets by population (multi-session, temporal-
+        # reasoning, knowledge-update, single-session-user) -> 7/7/7/7/6/6.
+        sp = ds.make_split("smoke-40", oracle, per_type=6, top_up_to=40, seed=args.seed)
+        ds.write_split(sp)
+        made.append(f"smoke-40      n={sp.n:3d}  {sp.dataset_file}  {sp.ids_sha256[:16]}…")
     if not args.only or args.only in ("dev-150", "full-500"):
         s = ds.load_dataset(S_CLEANED)
         _sanity_taxonomy(s)
@@ -264,7 +273,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
         check(p.name, lambda p=p: ds.assert_dataset_pin(p)[:16] + "…")
 
     print("split locks")
-    for name in ("smoke-30", "dev-150", "full-500"):
+    for name in ("smoke-30", "smoke-40", "dev-150", "full-500"):
         check(name, lambda n=name: f"n={ds.load_split(n).n}, {ds.load_split(n).ids_sha256[:16]}…")
 
     print("prompts")
@@ -324,7 +333,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("splits", help="build + lock the frozen splits")
     sp.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    sp.add_argument("--only", choices=["smoke-30", "dev-150", "full-500"])
+    sp.add_argument("--only", choices=["smoke-30", "smoke-40", "dev-150", "full-500"])
     sp.set_defaults(func=cmd_splits)
 
     r = sub.add_parser("run", help="run one or more arms")
