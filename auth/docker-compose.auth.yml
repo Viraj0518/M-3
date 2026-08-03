@@ -1,0 +1,49 @@
+# The auth lane, composable with the rest of the local stack.
+#
+#   docker compose -f auth/docker-compose.auth.yml up -d
+#
+# Loopback-only bindings on purpose. Docker's default `"6401:6401"` publishes on
+# 0.0.0.0, which on conference wifi hands the room unauthenticated read/write
+# access to the graph — including session and token nodes. There is no password
+# on the FalkorDB instance, so the bind address is the only control there is.
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: palimpsest-falkordb
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6401:6379"
+    volumes:
+      - falkordb-data:/var/lib/falkordb/data
+    environment:
+      REDIS_ARGS: "--save 20 1 --appendonly yes"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  auth:
+    build: .
+    container_name: palimpsest-auth
+    restart: unless-stopped
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8932:8932"
+    environment:
+      AUTH_HOST: 0.0.0.0
+      AUTH_PORT: 8932
+      AUTH_BASE_URL: ${AUTH_BASE_URL:-http://127.0.0.1:8932}
+      BRIDGE_URL: ${BRIDGE_URL:-http://127.0.0.1:8931}
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: 6379
+      AUTH_GRAPH_KEY: ${AUTH_GRAPH_KEY:-palimpsest_auth}
+      AUTH_LABEL_PREFIX: ${AUTH_LABEL_PREFIX:-Auth}
+      # Signs sessions and encrypts the JWKS private key. Bring your own;
+      # rotating it strands existing keys (delete the AuthJwks nodes too).
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
+
+volumes:
+  falkordb-data:

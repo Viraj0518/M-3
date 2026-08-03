@@ -1,0 +1,27 @@
+{
+  "name": "palimpsest-auth",
+  "version": "0.1.0",
+  "description": "OAuth 2.1 + email/password authentication for the PALIMPSEST bridge, backed by FalkorDB",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "verify": "node scripts/verify-auth.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@better-auth/oauth-provider": "^1.6.25",
+    "better-auth": "^1.6.25",
+    "falkordb": "^6.7.0",
+    "hono": "^4.6.14",
+    "@hono/node-server": "^1.13.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

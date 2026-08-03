@@ -79,6 +79,7 @@ from memory.taxonomy import (
     normalize_block_type,
 )
 
+from . import auth as authmod
 from . import graphstore, identity
 
 # ─── MCP SDK, guarded ───────────────────────────────────────────────────────
@@ -1821,7 +1822,12 @@ async def dispatch(
         payload = {k: v for k, v in payload.items() if v is not None}
 
     hdr_session, hdr_agent = identity.selector_from_headers(headers)
-    agent = identity.resolve(
+    # Precedence rung 0: a CRYPTOGRAPHICALLY VERIFIED selector, when the auth
+    # service is configured. identity.py's ladder ends at a header any caller
+    # can set, so a verified token has to outrank it or authentication buys
+    # nothing. No token (or a bad one) falls through to the existing ladder
+    # unchanged, so this is inert until AUTH_JWKS_URL is set.
+    agent = authmod.resolve_verified(headers) or identity.resolve(
         session_id or hdr_session,
         is_stdio=is_stdio,
         header_selector=hdr_agent,
