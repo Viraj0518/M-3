@@ -41,15 +41,19 @@ ENV BRIDGE_HOST=0.0.0.0 \
 
 WORKDIR /app
 
-# Dependency layer first, on its own, so an edit to the bridge source does not
-# re-run the install.
+# Dependency layer first, on its own, so an edit to the bridge or realtime
+# source does not re-run the install.
 COPY app/bridge/requirements.txt /app/app/bridge/requirements.txt
-RUN pip install --no-cache-dir -r /app/app/bridge/requirements.txt
+COPY realtime/requirements.txt /app/realtime/requirements.txt
+RUN pip install --no-cache-dir \
+    -r /app/app/bridge/requirements.txt \
+    -r /app/realtime/requirements.txt
 
-# The two packages the bridge actually imports. Nothing else from the repo is
+# The bridge and its realtime LaserData seam. Nothing else from the repo is
 # copied: the eval harness, plan/, agents/ and the git history are not runtime.
 COPY memory/ /app/memory/
 COPY app/ /app/app/
+COPY realtime/ /app/realtime/
 
 COPY deploy/bridge/healthcheck.py /usr/local/bin/palimpsest-healthcheck.py
 

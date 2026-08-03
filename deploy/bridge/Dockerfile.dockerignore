@@ -23,7 +23,6 @@ eval/data
 plan
 agents
 motion
-realtime
 deploy/.env
 **/.env
 **/*.log
