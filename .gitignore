@@ -31,3 +31,6 @@ dist/
 falkordb-data/
 *.log
 eval/data/*.json
+
+# runtime artifacts (a running bridge writes these)
+*.pid

@@ -954,13 +954,45 @@ async def _h_stream_publish(ctx: RequestCtx) -> dict:
 
 
 async def _h_stream_tail(ctx: RequestCtx) -> dict:
-    return todo(
+    """The ONE stub with a rendered consumer, so it gets a rendered SHAPE.
+
+    Still an honest not-implemented envelope (``ok:false``,
+    ``status:'not_implemented'``, and it never invents a record), but it
+    additionally carries the three fields the projector's stream strip reads —
+    ``events: []`` / ``offset: null`` / ``stub: true``.
+
+    THE REASON IS THE UI, NOT POLITENESS. ``app/web/index.html``'s
+    ``pollBridge`` calls /graph, /stream_tail and /ring through
+    ``Promise.allSettled``, and ``fetchJson`` THROWS on any non-2xx. A REJECTED
+    /stream_tail leaves the graph live but the strip on a connection error; an
+    EMPTY-BUT-DECLARED tail is parsed by ``flattenRecords`` (which checks
+    ``records``/``events``/``items``/``messages`` in that order), yields zero
+    records, and leaves the strip untouched while the graph renders LIVE. The
+    difference between those two is the difference between a stubbed strip and
+    a MOCK badge on stage.
+    """
+    envelope = todo(
         ctx,
         "STREAM LANE. Bounded read of the newest N records. Consumer "
         "invariants (ported from unblock comms/monitor.py:28-42): "
         "enqueue-before-ack; dedup on STREAM SEQUENCE not message_id; "
         "backpressure, never drop; cancellation-safe idempotent teardown.",
     )
+    # `topic` is a PATH param, so the builder has already stripped it from the
+    # body — read it back off the resolved path rather than the payload.
+    parts = ctx.path.split("/")
+    topic = parts[-2] if len(parts) >= 2 and parts[-1] == "tail" else ctx.payload.get("topic")
+    envelope.update(
+        {
+            "stub": True,
+            "events": [],
+            "records": [],
+            "offset": None,
+            "topic": topic,
+            "limit": ctx.payload.get("limit"),
+        }
+    )
+    return envelope
 
 
 async def _h_stream_replay(ctx: RequestCtx) -> dict:

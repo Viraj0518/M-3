@@ -17,6 +17,16 @@ falkordb>=1.0,<2
 # app/bridge/identity.py keys per-agent identity on. Do not relax it.
 mcp>=1.28,<2
 
+# The REST surface (app/bridge/rest.py) + the ASGI server it runs under. The
+# MCP streamable-http manager mounts INTO this same app on the same port, so
+# there is exactly one process and one port (127.0.0.1:8931) to keep alive.
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+
+# httpx is already pulled in by `mcp`, but the REST test gate uses it directly
+# through fastapi.testclient — declare it rather than depend on a transitive.
+httpx>=0.27,<1
+
 # Test gate (runs against the LIVE container, graph key `palimpsest_test`).
 pytest>=8,<9
 pytest-asyncio>=0.24,<2
