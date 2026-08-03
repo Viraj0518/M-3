@@ -26,3 +26,7 @@ app/        # demo surface (UI / CLI)
 ```
 
 Concept, architecture, and hour-by-hour plan live in `plan/` (generated from the research workflow; edit freely).
+
+## Use it as an MCP server
+
+Connect any MCP host to the live PALIMPSEST memory tools — see [MCP.md](./MCP.md). Public endpoint: `https://palimpsest-bridge.fly.dev/mcp`.
