@@ -106,7 +106,7 @@ html { scroll-behavior: smooth; }
   </div>
 </header>
 <nav>
-  <a href="#pitch">Pitch</a><a href="#why">Why this wins</a><a href="#arch">Architecture</a>
+  <a href="#pitch">Pitch</a><a href="#ux">Canonical UX</a><a href="#why">Why this wins</a><a href="#arch">Architecture</a>
   <a href="#sponsors">Sponsor proofs</a><a href="#reuse">Unblock reuse</a><a href="#pre">Pre-event</a>
   <a href="#hours">Hour-by-hour</a><a href="#gates">Gates</a><a href="#demo">Demo script</a>
   <a href="#qa">Judge Q&amp;A</a><a href="#risks">Risks</a>
@@ -114,6 +114,18 @@ html { scroll-behavior: smooth; }
 
 <section id="pitch"><h2>The pitch</h2>
 <div class="pitch">Palimpsest watches the world's public knowledge being rewritten in real time and remembers every version as a directed, attributed property graph. A single edit is never suspicious; a coordinated campaign is — and Palimpsest catches the fourth move of a ring in one 3-hop Cypher query, in under five milliseconds, across entities that arrived at different times from different sources. Four specialist agents split the work, refuse to act without a human, and fire a real action with the full provenance chain attached. Then we prove the memory is load-bearing instead of claiming it: one keypress replays the identical event log from offset zero into an empty graph, and you watch the same agents, same model, same prompt, confidently make the wrong call. Kill the analyst mid-investigation and it restarts cold, reads its own handover node out of the graph, resumes from its committed stream offset, and finishes the case. Memory, visibly producing motion.</div></section>
+
+<section id="ux"><h2>Canonical UX — the north star <span class="tag ok" style="vertical-align:middle">operator ruling</span></h2>
+<div class="pitch">Every AI agent wakes up stateless and amnesiac. Not with ours. When you ask a question, the agent already knows <b>who you are</b>, <b>who it is</b>, and <b>what is happening right now</b> — it pulls the required context automatically instead of asking you for it. Conversations that used to be a multi-turn interrogation resolve in a <b>single turn</b>.</div>
+<p class="sub">Every mechanic in this build exists to serve that sentence. The cold-vs-warm ablation IS this UX made visible: the amnesiac agent hedges or interrogates; the informed agent answers in one turn.</p>
+<div class="tablewrap"><table><thead><tr><th>UX promise</th><th>Mechanism</th><th>Demo beat that proves it</th></tr></thead><tbody>
+<tr><td class="k">Knows who you are</td><td>FalkorDB graph: every fact attributed, every actor's full history one traversal away (<code>author_agent</code> on every write, entity graph over everything ever seen)</td><td>The 3-hop ring — the actor's entire past joins the live edit in 2.45&nbsp;ms</td></tr>
+<tr><td class="k">Knows who it is</td><td>Per-agent identity (<code>session_persona.py</code> port) + its own open <code>[:HANDED_OFF_TO]</code> handover node in the same graph</td><td>Kill-and-resume: restarted cold, it reads its own handover and finishes the case — it resumed, not restarted</td></tr>
+<tr><td class="k">Constant datastream</td><td>LaserData log spine — six topics, committed offsets, durable ordered replay</td><td>Live firehose on screen + the offset-zero replay</td></tr>
+<tr><td class="k">Pulls instead of asks</td><td>RocketRide Wave planner fetches NOW + recalls EVER in ONE parallel wave; Guild <code>task.gather</code> fans specialists out concurrently. The ONLY question ever sent to a human is the one worth asking: <em>approval to act</em> (<code>ui_prompt</code>) — never context it can fetch itself</td><td>Single-turn resolution: question in → verdict + provenance out, zero clarifying questions. Cold twin asks; warm twin answers</td></tr>
+</tbody></table></div>
+<p class="note"><b>Judge-legible metric — put it on screen:</b> a <code>turns-to-answer</code> counter on both panels of the COLD|WARM split. Cold: "I need more context — which pages? which timeframe?" (turns: 3+). Warm: verdict with provenance (turns: 1). Same model, same prompt; the difference is the product.</p>
+</section>
 
 <section id="why"><h2>Why this concept wins</h2><p class="">WINNER: a merge, with PALIMPSEST as the spine. All three concepts converged on the same physical stack (falkordblite on TCP, laser-stack Log-only, one .pipe, four Guild agents, one OpenAPI bridge) — so the real choice was between three NARRATIVES and three PROOF STRATEGIES, and each won a different category.</p>
 <p class="">Why Palimpsest wins the frame: it is the only concept whose domain sentence a judge understands in four seconds ("we remember what the internet overwrites") and whose central proof is an EXPERIMENT rather than an assertion. The REWIND A/B — replay the identical LaserData log from offset 0 into an empty graph key, same model, same prompt, opposite verdict — is the strongest possible answer to the only question these judges actually ask ("is the graph decorative?"), and it proves TWO sponsors with ONE mechanic, because durable ordered replay is the thing only LaserData can do. Nothing in the other two concepts beats it per unit of stage time.</p>
