@@ -226,7 +226,11 @@ def cmd_report(args: argparse.Namespace) -> int:
         rows += ["## Judged arms", "", "```"] + metrics.render_board(arm_metrics) + ["```", ""]
         try:
             guards.t12_compare_budgets(budgets)
-            rows.append(f"Equal-k comparison verified: all non-A0 arms served k={sorted(set(budgets.values()))}.")
+            rows.append(
+                f"Equal-k comparison verified: all non-A0 arms DECLARED k={sorted(set(budgets.values()))}. "
+                "(Declared budget only — a preference-routed arm may serve a small pack on top of k; "
+                "compare returned_set_size before citing an A3-vs-A1 delta as a mechanism win.)"
+            )
         except guards.GuardViolation as exc:
             rows.append(f"**T12 WARNING** — {exc}")
         rows.append("")
