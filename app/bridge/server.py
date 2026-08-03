@@ -63,17 +63,23 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from memory import config
 from memory.taxonomy import (
     BLOCK_TYPES,
+    HANDOVER_OPEN,
     HANDOVER_STATUSES,
     MESSAGE_INTENTS,
+    NODE_LABELS,
     RELATION_KINDS,
+    check_relation,
+    is_directed,
+    normalize_block_type,
 )
 
-from . import identity
+from . import graphstore, identity
 
 # ─── MCP SDK, guarded ───────────────────────────────────────────────────────
 # The module must IMPORT CLEANLY with or without the SDK installed, so the
@@ -273,6 +279,7 @@ def _build_handover_write(args: dict) -> dict:
     body: Dict[str, Any] = {"status": "open"}
     for key in (
         "agent_id",
+        "to_agent",
         "role",
         "session_id",
         "summary",
@@ -281,6 +288,7 @@ def _build_handover_write(args: dict) -> dict:
         "blockers",
         "artifacts",
         "checkpoint",
+        "graph",
     ):
         val = args.get(key)
         if val is not None:
@@ -317,62 +325,621 @@ def _build_ask(args: dict) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# handlers  —  element 4 of the tuple. TODO bodies, honest envelopes.
+# MEMORY PLANE — live handlers against FalkorDB
 # ═══════════════════════════════════════════════════════════════════════════
-# Each one names EXACTLY what has to be built and which lane owns it. Nothing
-# below fabricates a result.
+# Element 4 of the tuple. The stream/act verbs below are still honest `todo`
+# envelopes (a separate lane); everything in THIS block talks to the database.
+#
+# ── THE UI-ENVELOPE TRAP (found reading app/web/index.html, not by guessing) ─
+# The projector unwraps every response as
+#
+#     const root = payload?.result ?? payload?.data ?? payload?.graph ?? payload
+#
+# so a top-level key named `result`, `data` or **`graph`** is treated as THE
+# PAYLOAD. Returning `{"ok": true, "nodes": [...], "graph": "palimpsest"}` makes
+# `root` the STRING "palimpsest", `root.nodes` undefined, zero nodes parsed, and
+# the UI silently falls back to its mock graph — a perfect false-green on stage.
+# Every handler below therefore names the graph key `graph_key`, never `graph`.
+#
+# ── async over a sync client ────────────────────────────────────────────────
+# The falkordb client is synchronous. Every call is pushed onto a worker thread
+# via asyncio.to_thread so one slow query cannot stall the MCP/SSE event loop.
+
+_RING_WINDOW_S_DEFAULT = 720          # 12 minutes — the synthesis ring beat
+_RING_SCORE_THRESHOLD = 0.5           # above this, publish case.opened
+_MAX_TS = 2 ** 53                     # "no upper bound" as a real number
+
+
+def _graph_key(ctx: RequestCtx) -> str:
+    """The graph this call reads/writes. Validated (allowlist pattern), never
+    interpolated raw — the key arrives from a REST query string."""
+    return graphstore.check_graph_key(ctx.payload.get("graph") or ctx.payload.get("graph_key"))
+
+
+async def _ensure(graph_key: str) -> None:
+    """Idempotent index bootstrap, on the first touch of a graph key.
+
+    SCHEMA.md §3 calls for these at startup; doing it per-first-touch instead
+    means a graph created mid-run (the ablation's cold graph, a test key) is
+    never left without its HNSW index — which fails SILENTLY, as wrong
+    neighbours rather than an error.
+    """
+    await asyncio.to_thread(graphstore.ensure_indexes, graph_key)
+
+
+def _int(value: Any, default: int, lo: int, hi: int) -> int:
+    try:
+        out = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, out))
+
+
+# ─── remember ───────────────────────────────────────────────────────────────
 
 async def _h_remember(ctx: RequestCtx) -> dict:
-    return todo(
-        ctx,
-        "MEMORY LANE. Embed content (EMBED_DIM=256, must match the HNSW index "
-        "or the vector index corrupts SILENTLY); run the sensing gate "
-        "(db.idx.vector.queryNodes, top-1 DISTANCE < SALIENCE_THRESHOLD => "
-        "skip); then MERGE a (:Claim) / (:Event) with "
-        "normalize_block_type(block_type, metadata) applied and "
-        "SET n.author_agent = $author_agent. Emit the delta to the UI topic.",
+    """MERGE one typed node into the graph, stamped with the acting agent.
+
+    * ``block_type`` goes through ``taxonomy.normalize_block_type`` — so
+      ``'fix'`` becomes ``block_type='decision' + metadata.kind='fix'`` instead
+      of silently degrading to ``'note'`` (SCHEMA.md trap 10).
+    * ``author_agent`` is stamped SERVER-SIDE from the resolved identity. The
+      request body never gets to name its own author.
+    * ``embedding`` is an OPTIONAL PRECOMPUTED vector. This handler NEVER calls
+      an embedding API — embeddings come from ``OPENAI_API_KEY``, which is the
+      gate's/harness's business, and a network call on the live write path is
+      exactly the thing that hangs on stage.
+    * The id is a content hash by default, so calling remember twice with the
+      same content is a genuine no-op MERGE rather than a duplicate node.
+    """
+    p = ctx.payload
+    content = p.get("content")
+    if content is None:
+        return err("MISSING_CONTENT", "remember requires `content`")
+
+    graph_key = _graph_key(ctx)
+    block_type, metadata = normalize_block_type(p.get("block_type"), p.get("metadata"))
+    labels = p.get("labels") or []
+    label = graphstore.check_label(labels[0] if labels else None, "Claim")
+    emb = graphstore.check_vector(p.get("embedding"))
+    text = graphstore.flat_text(content)
+    node_id = p.get("id") or graphstore.stable_id("blk", label, block_type, text)
+    tags = [str(t) for t in (p.get("tags") or [])]
+
+    await _ensure(graph_key)
+
+    # ── sensing gate (OPT-IN) ───────────────────────────────────────────────
+    # Ported threshold from unblock's sensing-gate.ts. Applied to the top-1
+    # DISTANCE: BELOW the threshold means "too close to something we already
+    # know" => skip. It is opt-in here because `remember` is also the primitive
+    # the seed scripts and the eval harness use, and a gate that silently eats
+    # a deliberate write is worse than no gate. realtime/gate.py owns the
+    # always-on firehose path.
+    if p.get("gate") and emb is not None:
+        near = await asyncio.to_thread(_knn, graph_key, label, emb, 1)
+        if near and near[0][1] < config.SALIENCE_THRESHOLD:
+            return ok(
+                skipped=True,
+                reason="sensing gate: top-1 distance {0:.4f} < SALIENCE_THRESHOLD "
+                "{1} — not novel".format(near[0][1], config.SALIENCE_THRESHOLD),
+                nearest=graphstore.project_node(near[0][0]),
+                distance=near[0][1],
+                graph_key=graph_key,
+            )
+
+    sets = [
+        "n.text = $text",
+        "n.block_type = $block_type",
+        "n.metadata_json = $metadata_json",
+        "n.tags = $tags",
+        "n.updated_ts = timestamp()",
+        identity.author_clause("n"),
+    ]
+    params: Dict[str, Any] = {
+        "id": node_id,
+        "text": text,
+        "block_type": block_type,
+        "metadata_json": graphstore.encode_map(metadata),
+        "tags": tags,
+        identity.AUTHOR_PROP: ctx.agent,
+    }
+    if label == "Event":
+        # SCHEMA.md §1: :Event carries `summary`, :Claim carries `text`.
+        sets.append("n.summary = $text")
+    if emb is not None:
+        sets.append("n.emb = vecf32($emb)")
+        params["emb"] = emb
+    if p.get("ts") is not None:
+        sets.append("n.ts = $ts")
+        params["ts"] = p["ts"]
+
+    cypher = (
+        "MERGE (n:{label} {{id: $id}}) "
+        "ON CREATE SET n.created_ts = timestamp() "
+        "SET {sets} "
+        "RETURN n"
+    ).format(label=label, sets=", ".join(sets))
+
+    rows, run_ms, stats = await asyncio.to_thread(
+        graphstore.mutate, cypher, params, graph_key=graph_key
+    )
+    node = graphstore.project_node(rows[0][0]) if rows else None
+
+    linked = None
+    if p.get("case_id"):
+        link = (
+            "MATCH (n:{label} {{id: $id}}) "
+            "MERGE (c:Case {{id: $case_id}}) "
+            "ON CREATE SET c.status = 'open', c.opened_ts = timestamp() "
+            "MERGE (c)-[r:IMPLICATES]->(n) SET r.why = $why "
+            "RETURN c.id"
+        ).format(label=label)
+        await asyncio.to_thread(
+            graphstore.mutate,
+            link,
+            {"id": node_id, "case_id": p["case_id"], "why": p.get("why") or "remember"},
+            graph_key=graph_key,
+        )
+        linked = p["case_id"]
+
+    return ok(
+        id=node_id,
+        node=node,
+        label=label,
+        block_type=block_type,
+        metadata=metadata,
+        created=bool(stats["nodes_created"]),
+        embedded=emb is not None,
+        case_id=linked,
+        author_agent=ctx.agent,
+        run_time_ms=run_ms,
+        graph_key=graph_key,
     )
 
+
+# ─── relate ─────────────────────────────────────────────────────────────────
 
 async def _h_relate(ctx: RequestCtx) -> dict:
-    return todo(
-        ctx,
-        "MEMORY LANE. check_relation(relation) then MERGE "
-        "(a)-[:RELATES {relation, author_agent}]->(b) — GENUINELY DIRECTED. Do "
-        "NOT canonicalize the endpoints into id order: that is unblock's a<b "
-        "CHECK, and it is exactly the bug we dropped.",
+    """A GENUINELY DIRECTED [:RELATES] edge.
+
+    The endpoints are written in the order the caller gave them and are NEVER
+    canonicalized into id order. unblock's ``contradiction_edges`` carries
+    ``CHECK (block_id_a < block_id_b)``, a Postgres dedup trick that makes
+    "A supersedes B" and "B supersedes A" the same row. We dropped it, and
+    ``taxonomy.is_directed()`` is returned on the envelope so the property is
+    assertable by a test rather than promised by a comment.
+    """
+    p = ctx.payload
+    from_id, to_id = p.get("from_id"), p.get("to_id")
+    if not from_id or not to_id:
+        return err("MISSING_ENDPOINT", "relate requires `from_id` and `to_id`")
+    try:
+        relation = check_relation(p.get("relation") or "")
+    except ValueError as exc:
+        return err("BAD_RELATION", str(exc), valid=list(RELATION_KINDS))
+
+    graph_key = _graph_key(ctx)
+    await _ensure(graph_key)
+
+    cypher = (
+        "MATCH (a {id: $from_id}), (b {id: $to_id}) "
+        "MERGE (a)-[r:RELATES {relation: $relation}]->(b) "
+        "ON CREATE SET r.created_ts = timestamp() "
+        "SET r.note = $note, r.updated_ts = timestamp(), " + identity.author_clause("r") + " "
+        "RETURN a, r, b"
     )
+    params = {
+        "from_id": from_id,
+        "to_id": to_id,
+        "relation": relation,
+        "note": p.get("note") or "",
+        identity.AUTHOR_PROP: ctx.agent,
+    }
+    rows, run_ms, stats = await asyncio.to_thread(
+        graphstore.mutate, cypher, params, graph_key=graph_key
+    )
+    if not rows:
+        return err(
+            "NODE_NOT_FOUND",
+            "no node with id {0!r} and/or {1!r} in graph {2!r} — relate never "
+            "creates its endpoints, so a typo cannot invent a node".format(
+                from_id, to_id, graph_key
+            ),
+            from_id=from_id,
+            to_id=to_id,
+            graph_key=graph_key,
+        )
+
+    a, rel, b = rows[0][0], rows[0][1], rows[0][2]
+    return ok(
+        edge=graphstore.project_edge(rel),
+        src=graphstore.project_node(a),
+        dest=graphstore.project_node(b),
+        relation=relation,
+        directed=is_directed(relation),
+        from_id=from_id,
+        to_id=to_id,
+        created=bool(stats["relationships_created"]),
+        author_agent=ctx.agent,
+        run_time_ms=run_ms,
+        graph_key=graph_key,
+    )
+
+
+# ─── recall ─────────────────────────────────────────────────────────────────
+
+def _knn(graph_key: str, label: str, vector: List[float], k: int) -> List[Tuple[Any, float]]:
+    """Vector KNN entry. **ORDER BY score ASC** — the score is a DISTANCE.
+
+    Re-verified against this container today: querying with the exact stored
+    vector returns 0.0, its near neighbour 0.0061. Sorting DESC would hand the
+    judges the WORST matches in the database, with no error and no warning.
+
+    ``label`` and ``k`` are interpolated (both validated: label against the
+    ten-label allowlist, k coerced to a bounded int) because this build's
+    procedure signature is positional and rejects a map form.
+    """
+    cypher = (
+        "CALL db.idx.vector.queryNodes('{label}', 'emb', {k}, vecf32($q)) "
+        "YIELD node, score RETURN node, score ORDER BY score ASC"
+    ).format(label=graphstore.check_label(label), k=int(k))
+    try:
+        rows, _ms, _h = graphstore.query(cypher, {"q": vector}, graph_key=graph_key)
+    except graphstore.GraphUnavailable:
+        # No vector index on that label yet, or no node carries `emb`. An empty
+        # KNN is the honest answer; the property/fulltext lane still runs.
+        return []
+    return [(r[0], float(r[1])) for r in rows]
+
+
+def _lexical(graph_key: str, text: str, labels: List[str], k: int) -> List[Tuple[Any, float]]:
+    """Property/fulltext entry — the no-embedding lane.
+
+    Fulltext first (a real index, ranked); on any rejection (no fulltext index
+    on that label yet, or a query string the tokenizer refuses) it degrades to
+    a CONTAINS scan, and `recall` reports WHICH lane answered in `mode` so a
+    silent degradation is visible instead of invisible.
+    """
+    out: List[Tuple[Any, float]] = []
+    fields = {"Claim": "text", "Event": "summary"}
+    for label in labels:
+        field = fields.get(label)
+        if not field:
+            continue
+        try:
+            rows, _ms, _h = graphstore.query(
+                "CALL db.idx.fulltext.queryNodes('{label}', $q) YIELD node, score "
+                "RETURN node, score ORDER BY score DESC LIMIT {k}".format(
+                    label=graphstore.check_label(label), k=int(k)
+                ),
+                {"q": text},
+                graph_key=graph_key,
+            )
+            out.extend((r[0], float(r[1])) for r in rows)
+        except graphstore.GraphUnavailable:
+            continue
+    if out:
+        return out[:k]
+
+    for label in labels:
+        field = fields.get(label, "text")
+        rows, _ms, _h = graphstore.query(
+            "MATCH (n:{label}) WHERE toLower(coalesce(n.{field}, '')) CONTAINS toLower($q) "
+            "RETURN n, 0.0 LIMIT {k}".format(
+                label=graphstore.check_label(label), field=field, k=int(k)
+            ),
+            {"q": text},
+            graph_key=graph_key,
+        )
+        out.extend((r[0], 0.0) for r in rows)
+    return out[:k]
+
+
+def _supersede_head(graph_key: str, internal_id: int) -> Tuple[Optional[Any], List[Any], int]:
+    """Resolve one seed to the HEAD of its supersede chain, plus the lineage.
+
+    Direction matters and is the whole point: we write
+    ``(newer)-[:RELATES {relation:'supersedes'}]->(older)``, so the CURRENT
+    truth is reached by walking INCOMING supersedes edges until a node has
+    none left. "You told me X, then Y — here is the current truth and the chain
+    that got there." An undirected edge store cannot answer this at all.
+    """
+    rows, _ms, _h = graphstore.query(
+        "MATCH (s) WHERE id(s) = $sid "
+        "MATCH path = (s)<-[:RELATES* {relation: 'supersedes'}]-(head) "
+        "WHERE NOT (head)<-[:RELATES {relation: 'supersedes'}]-() "
+        "RETURN head, nodes(path), length(path) ORDER BY length(path) DESC LIMIT 1",
+        {"sid": int(internal_id)},
+        graph_key=graph_key,
+    )
+    if not rows:
+        return None, [], 0
+    return rows[0][0], list(rows[0][1] or []), int(rows[0][2] or 0)
 
 
 async def _h_recall(ctx: RequestCtx) -> dict:
-    return todo(
-        ctx,
-        "MEMORY LANE. Hybrid GraphRAG entry: db.idx.vector.queryNodes over "
-        "Claim.emb/Event.emb, then expand. SORT ASCENDING — the score is a "
-        "DISTANCE (0.0 = identical). Sorting DESC shows the judges the WORST "
-        "matches with no error at all.",
+    """Hybrid retrieval: semantic entry -> symbolic expansion -> lineage.
+
+    Three stages, one envelope:
+
+      1. ENTRY — ``db.idx.vector.queryNodes`` when the caller supplies a
+         precomputed ``embedding``; otherwise the property/fulltext lane.
+      2. EXPANSION — one hop through shared ``:Entity`` nodes
+         (``[:ABOUT|MENTIONS]``). This is the half a vector store cannot do:
+         "semantically near" plus "structurally adjacent", one round trip.
+      3. SUPERSEDE RESOLUTION — every hit is resolved to the HEAD of its
+         supersede chain and served WITH the lineage, so a stale claim can
+         never be returned as current. `superseded_by` names the winner.
+    """
+    p = ctx.payload
+    text = p.get("text") or ""
+    if not text and p.get("embedding") is None:
+        return err("MISSING_QUERY", "recall requires `text` (or a precomputed `embedding`)")
+
+    graph_key = _graph_key(ctx)
+    top_k = _int(p.get("top_k"), 10, 1, 100)
+    labels = [graphstore.check_label(x) for x in (p.get("labels") or ["Claim", "Event"])]
+    emb = graphstore.check_vector(p.get("embedding"))
+    await _ensure(graph_key)
+
+    def _work() -> dict:
+        seeds: List[Tuple[Any, float]] = []
+        if emb is not None:
+            for label in labels:
+                seeds.extend(_knn(graph_key, label, emb, top_k))
+            seeds.sort(key=lambda pair: pair[1])       # ASC. Always ASC.
+            mode = "vector"
+        else:
+            seeds = _lexical(graph_key, text, labels, top_k)
+            mode = "lexical"
+        seeds = seeds[:top_k]
+
+        seed_ids = [int(getattr(n, "id")) for n, _s in seeds]
+
+        # (2) one-hop entity expansion over the seed set
+        expanded: List[dict] = []
+        if seed_ids:
+            rows, _ms, _h = graphstore.query(
+                "MATCH (s) WHERE id(s) IN $ids "
+                "MATCH (s)-[:ABOUT|MENTIONS]->(e:Entity)<-[:ABOUT|MENTIONS]-(nb) "
+                "WHERE id(nb) <> id(s) AND NOT id(nb) IN $ids "
+                "RETURN DISTINCT nb, e, id(s) LIMIT $lim",
+                {"ids": seed_ids, "lim": top_k * 4},
+                graph_key=graph_key,
+            )
+            for nb, ent, via in rows:
+                expanded.append(
+                    {
+                        "node": graphstore.project_node(nb),
+                        "via_entity": graphstore.project_node(ent),
+                        "via_seed_id": str(via),
+                        "hop": 1,
+                    }
+                )
+
+        # (3) supersede resolution — serve the chain HEAD + lineage
+        results: List[dict] = []
+        for node, score in seeds:
+            nid = int(getattr(node, "id"))
+            head, lineage, depth = _supersede_head(graph_key, nid)
+            item = {
+                "node": graphstore.project_node(node),
+                "score": score,
+                "distance": score if mode == "vector" else None,
+                "superseded": head is not None,
+                "supersede_depth": depth,
+                "head": graphstore.project_node(head) if head is not None else None,
+                "lineage": [graphstore.project_node(n) for n in lineage],
+            }
+            if head is not None:
+                item["superseded_by"] = (head.properties or {}).get("id")
+            results.append(item)
+        return {"mode": mode, "results": results, "expanded": expanded}
+
+    started = time.perf_counter()
+    out = await asyncio.to_thread(_work)
+    return ok(
+        query=text,
+        mode=out["mode"],
+        top_k=top_k,
+        labels=labels,
+        count=len(out["results"]),
+        results=out["results"],
+        expanded=out["expanded"],
+        elapsed_ms=round((time.perf_counter() - started) * 1000.0, 3),
+        graph_key=graph_key,
     )
+
+
+# ─── ring ───────────────────────────────────────────────────────────────────
+
+#: The load-bearing query (plan/synthesis.json sponsor_integration.falkordb §1).
+#: Three DISTINCT actors, two DISTINCT pages, four :EDITED edges inside one time
+#: window. No single edit crosses any threshold; the SHAPE is the signal. A
+#: vector store cannot express "similar to a four-step causal chain".
+_RING_CYPHER = (
+    "MATCH p=(a:Actor)-[e1:EDITED]->(x:Page)<-[e2:EDITED]-(b:Actor)"
+    "-[e3:EDITED]->(y:Page)<-[e4:EDITED]-(c:Actor) "
+    "WHERE a.name <> b.name AND b.name <> c.name AND a.name <> c.name "
+    "AND x.title <> y.title "
+    "{anchor}"
+    "WITH p, a, b, c, x, y, [e1.ts, e2.ts, e3.ts, e4.ts] AS tss "
+    "WITH p, a, b, c, x, y, tss, "
+    "     reduce(mn = tss[0], t IN tss | CASE WHEN t < mn THEN t ELSE mn END) AS t_min, "
+    "     reduce(mx = tss[0], t IN tss | CASE WHEN t > mx THEN t ELSE mx END) AS t_max "
+    "WHERE (t_max - t_min) <= $window_s AND t_min >= $since AND t_max <= $until "
+    "RETURN p, a.name, b.name, c.name, x.title, y.title, t_min, t_max, "
+    "       (t_max - t_min) AS span_s "
+    "ORDER BY span_s ASC LIMIT $limit"
+)
 
 
 async def _h_ring(ctx: RequestCtx) -> dict:
-    return todo(
-        ctx,
-        "MEMORY LANE. The n-hop neighbourhood traversal around an anchor node "
-        "(MATCH p=(a)-[*1..3]->(b), verified working on FalkorDB). Returns the "
-        "Path objects the UI animates, plus a ring_score that decides whether "
-        "to publish case.opened.",
+    """The 3-hop co-edit ring — the verdict the rest of the stack cannot express.
+
+    Returns FalkorDB ``Path`` objects (projected to ``{nodes, edges, ids}``,
+    which is what the projector animates) and ``run_time_ms`` taken from
+    FalkorDB's OWN execution time, not a wall clock — that number goes on
+    screen next to the verdict, so it has to be the database's.
+
+    The window is the discriminator, and it is what makes the ablation honest:
+    the SAME actors and pages with edits spread beyond ``window_s`` return zero
+    rings. Cold does not fire.
+    """
+    p = ctx.payload
+    graph_key = _graph_key(ctx)
+    window_s = _int(p.get("window_s"), _RING_WINDOW_S_DEFAULT, 1, 86400 * 30)
+    limit = _int(p.get("limit"), 50, 1, 500)
+    since = p.get("since")
+    until = p.get("until")
+    anchor = p.get("anchor")
+
+    await _ensure(graph_key)
+
+    anchor_clause = ""
+    params: Dict[str, Any] = {
+        "window_s": window_s,
+        "since": since if isinstance(since, (int, float)) else 0,
+        "until": until if isinstance(until, (int, float)) else _MAX_TS,
+        "limit": limit,
+    }
+    if anchor:
+        anchor_clause = "AND (a.name = $anchor OR b.name = $anchor OR c.name = $anchor) "
+        params["anchor"] = anchor
+
+    cypher = _RING_CYPHER.format(anchor=anchor_clause)
+    rows, run_ms, _h = await asyncio.to_thread(
+        graphstore.query, cypher, params, graph_key=graph_key
+    )
+
+    # The traversal is symmetric: (A,B,C) and (C,B,A) are the same ring walked
+    # backwards. Keep the first, drop the mirror — a doubled ring count would
+    # inflate ring_score and open a case twice.
+    rings: List[dict] = []
+    paths: List[dict] = []
+    seen = set()
+    for path, a, b, c, x, y, t_min, t_max, span in rows:
+        fingerprint = (tuple(sorted((a, b, c))), tuple(sorted((x, y))))
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        rings.append(
+            {
+                "actors": [a, b, c],
+                "pages": [x, y],
+                "t_min": t_min,
+                "t_max": t_max,
+                "span_s": span,
+                "closeness": round(1.0 - (float(span) / float(window_s)), 4),
+            }
+        )
+        paths.append(graphstore.project_path(path))
+
+    ring_score = round(max([r["closeness"] for r in rings] or [0.0]), 4)
+    return ok(
+        fired=bool(rings),
+        ring_count=len(rings),
+        ring_score=ring_score,
+        should_open_case=ring_score >= _RING_SCORE_THRESHOLD and bool(rings),
+        rings=rings,
+        paths=paths,
+        ids=paths[0]["ids"] if paths else [],
+        window_s=window_s,
+        anchor=anchor,
+        run_time_ms=run_ms,
+        graph_key=graph_key,
     )
 
 
+# ─── graph (the UI projection) ──────────────────────────────────────────────
+
 async def _h_graph(ctx: RequestCtx) -> dict:
-    return todo(
-        ctx,
-        "UI LANE. The nodes+edges projection payload — shape lifted from "
-        "fetchBrainGraph (unblock_substrate .../roster-graph.ts:413-460), fed "
-        "from Cypher instead of SQL. FalkorDB exposes Node .id/.labels/"
-        ".properties and Edge .relation/.src_node/.dest_node. Include the "
-        "per-agent contribution stats (identity.contributors) — that is what "
-        "colours the nodes by author_agent.",
+    """The nodes+edges snapshot the projector renders.
+
+    THE UI WAS BUILT FIRST AND THIS CONFORMS TO IT — the contract below was
+    read out of ``app/web/index.html`` (``normalizeGraph``), not designed here:
+
+        node  -> {id, labels: [...], properties: {...}}
+                 id is the FalkorDB INTERNAL node id as a string, because
+                 Edge.src_node/.dest_node are internal ids and the UI drops any
+                 edge whose endpoints are not in the node id set.
+                 properties.snippet is synthesised: the UI's label chain is
+                 name/title/display_name/snippet/content/summary and our
+                 :Claim's own field is `text`, which is NOT in that chain.
+        edge  -> {relation, src, dest}   (its first-choice keys)
+        meta  -> {node_count, edge_count, capped, real_edges, derived_edges}
+                 — the same five fields as fetchBrainGraph's BrainGraph.meta
+                 (roster-graph.ts), with real = the typed [:RELATES] vocabulary
+                 and derived = the structural edges.
+
+    ``emb`` is stripped from every projected node: 256 floats per node would be
+    ~90% of the payload and render as nothing.
+    """
+    p = ctx.payload
+    graph_key = _graph_key(ctx)
+    limit = _int(p.get("limit"), 500, 1, 5000)
+    since = p.get("since")
+    await _ensure(graph_key)
+
+    def _work() -> dict:
+        where = ""
+        params: Dict[str, Any] = {"lim": limit + 1}
+        if isinstance(since, (int, float)):
+            where = "WHERE coalesce(n.updated_ts, n.ts, n.created_ts, 0) >= $since "
+            params["since"] = since
+
+        rows, run_ms, _h = graphstore.query(
+            "MATCH (n) {where}RETURN n "
+            "ORDER BY coalesce(n.updated_ts, n.ts, n.created_ts, 0) DESC "
+            "LIMIT $lim".format(where=where),
+            params,
+            graph_key=graph_key,
+        )
+        capped = len(rows) > limit
+        kept = rows[:limit]
+        nodes = [graphstore.project_node(r[0]) for r in kept]
+        ids = [int(getattr(r[0], "id")) for r in kept]
+
+        edges: List[dict] = []
+        if ids:
+            erows, _ms, _hh = graphstore.query(
+                "MATCH (a)-[e]->(b) WHERE id(a) IN $ids AND id(b) IN $ids RETURN e",
+                {"ids": ids},
+                graph_key=graph_key,
+            )
+            edges = [graphstore.project_edge(r[0]) for r in erows]
+
+        total, _ms2, _h2 = graphstore.query(
+            "MATCH (n) RETURN count(n)", {}, graph_key=graph_key
+        )
+        return {
+            "nodes": nodes,
+            "edges": edges,
+            "capped": capped,
+            "total": int(total[0][0]) if total else len(nodes),
+            "run_time_ms": run_ms,
+        }
+
+    out = await asyncio.to_thread(_work)
+    nodes, edges = out["nodes"], out["edges"]
+    real = sum(1 for e in edges if e["type"] == "RELATES")
+
+    return ok(
+        nodes=nodes,
+        edges=edges,
+        meta={
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+            "capped": out["capped"],
+            "real_edges": real,
+            "derived_edges": len(edges) - real,
+            "total_nodes": out["total"],
+            "run_time_ms": out["run_time_ms"],
+            "graph_key": graph_key,
+        },
+        contributors=graphstore.contributors_of(nodes),
+        agents=identity.bindings(),
+        graph_key=graph_key,
     )
 
 
@@ -418,40 +985,262 @@ async def _h_act(ctx: RequestCtx) -> dict:
     )
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# CONTINUITY — the cold-resume path, with BOTH inherited traps closed
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: Edge properties that are dict-shaped and therefore stored JSON-encoded
+#: (FalkorDB has no map property type).
+_HANDOVER_MAPS = ("artifacts", "checkpoint")
+
+#: Flat string properties carried on the edge.
+_HANDOVER_FLAT = ("summary", "in_flight", "next_steps", "blockers", "role", "session_id")
+
+
+def _handover_row(from_agent: Any, to_agent: Any, edge: Any) -> dict:
+    """One [:HANDED_OFF_TO] edge -> the row shape the reader guards."""
+    props = dict(getattr(edge, "properties", None) or {})
+    row: Dict[str, Any] = {
+        "handover_id": props.get("handover_id"),
+        "status": props.get("status"),
+        "from_agent": from_agent,
+        "agent_id": to_agent,
+        "updated_at": props.get("updated_ts"),
+        "created_at": props.get("created_ts"),
+    }
+    for key in _HANDOVER_FLAT:
+        row[key] = props.get(key)
+    for key in _HANDOVER_MAPS:
+        row[key] = graphstore.decode_map(props.get(key + "_json"))
+    return row
+
+
 async def _h_handover_write(ctx: RequestCtx) -> dict:
-    return todo(
-        ctx,
-        "HANDOVER LANE. MERGE (:Agent)-[:HANDED_OFF_TO {handover_id, status, "
-        "summary, in_flight, next_steps, blockers, artifacts, checkpoint}]->"
-        "(:Agent), with checkpoint carrying the COMMITTED LaserData offset. "
-        "Always status='open' on write (the builder enforces it); supersede "
-        "prior open rows for the same agent in the same transaction.",
+    """Write an OPEN handover edge, superseding the recipient's prior open rows.
+
+    Invariants (SCHEMA.md §7):
+      * status is ALWAYS ``'open'`` on write — ``_build_handover_write``
+        hard-codes it and this handler never reads a caller-supplied status.
+        Superseding is the WRITER's transaction job, never a caller's choice;
+        that is what makes the reader's status guard meaningful.
+      * the supersede and the insert happen in ONE Cypher statement (verified
+        on this build: ``OPTIONAL MATCH ... SET`` over zero rows is a no-op,
+        and ``WITH DISTINCT`` stops the optional match multiplying the CREATE).
+      * ``checkpoint`` carries the COMMITTED LaserData offset. That is what
+        makes cold-resume exact rather than approximate.
+    """
+    p = ctx.payload
+    agent_id = p.get("agent_id")
+    if not agent_id:
+        return err("MISSING_AGENT_ID", "handover_write requires `agent_id`")
+
+    graph_key = _graph_key(ctx)
+    # Default is a SELF-handoff: this session hands to the next session of the
+    # same agent. `to_agent` makes it a genuine delegation to a peer.
+    to_agent = p.get("to_agent") or agent_id
+    from_agent = agent_id
+    await _ensure(graph_key)
+
+    handover_id = graphstore.stable_id("hov", from_agent, to_agent, time.time_ns())
+    params: Dict[str, Any] = {
+        "from_agent": from_agent,
+        "to_agent": to_agent,
+        "handover_id": handover_id,
+        identity.AUTHOR_PROP: ctx.agent,
+    }
+    sets = [
+        "h.handover_id = $handover_id",
+        "h.status = '{0}'".format(HANDOVER_OPEN),
+        "h.created_ts = timestamp()",
+        "h.updated_ts = timestamp()",
+        identity.author_clause("h"),
+    ]
+    for key in _HANDOVER_FLAT:
+        params[key] = p.get(key) or ""
+        sets.append("h.{0} = ${0}".format(key))
+    for key in _HANDOVER_MAPS:
+        params[key + "_json"] = graphstore.encode_map(p.get(key))
+        sets.append("h.{0}_json = ${0}_json".format(key))
+
+    cypher = (
+        "MERGE (a:Agent {agent_id: $from_agent}) "
+        "ON CREATE SET a.created_ts = timestamp(), " + identity.author_clause("a") + " "
+        "MERGE (b:Agent {agent_id: $to_agent}) "
+        "ON CREATE SET b.created_ts = timestamp(), " + identity.author_clause("b") + " "
+        "WITH a, b "
+        # supersede every prior OPEN row into the recipient, in this same query
+        "OPTIONAL MATCH (:Agent)-[old:HANDED_OFF_TO {status: 'open'}]->(b) "
+        "SET old.status = 'superseded', old.superseded_ts = timestamp() "
+        "WITH DISTINCT a, b "
+        "CREATE (a)-[h:HANDED_OFF_TO]->(b) "
+        "SET " + ", ".join(sets) + " "
+        "RETURN a.agent_id, b.agent_id, h"
+    )
+    rows, run_ms, _stats = await asyncio.to_thread(
+        graphstore.mutate, cypher, params, graph_key=graph_key
+    )
+    if not rows:
+        return err("HANDOVER_WRITE_FAILED", "the handover edge was not created")
+
+    row = _handover_row(rows[0][0], rows[0][1], rows[0][2])
+    return ok(
+        handover_id=handover_id,
+        handover=row,
+        status=HANDOVER_OPEN,
+        from_agent=from_agent,
+        agent_id=to_agent,
+        author_agent=ctx.agent,
+        run_time_ms=run_ms,
+        graph_key=graph_key,
     )
 
 
 async def _h_handover_read(ctx: RequestCtx) -> dict:
-    return todo(
-        ctx,
-        "HANDOVER LANE — INHERIT BOTH DOCUMENTED TRAPS (unblock server.py:"
-        "4608-4672). (1) UNWRAP the {'handovers': [row?]} envelope EXPLICITLY: "
-        "a bare truthiness check treats a genuine MISS as a HIT, because "
-        "{'handovers': []} is itself truthy. (2) STATUS-GUARD on "
-        "status=='open': the by-agent read has no status filter upstream, so "
-        "an unguarded read RESURRECTS a superseded row. Fold the row ONLY when "
-        "open; otherwise report the honest miss with a reason.",
+    """Read an agent's OPEN handover. BOTH inherited traps are closed HERE.
+
+    ── TRAP (a): UNWRAP THE ENVELOPE EXPLICITLY ────────────────────────────
+    The by-agent read produces ``{"handovers": [row?]}`` — an envelope with
+    zero or one rows. ``if parsed:`` treats a GENUINE MISS AS A HIT, because
+    ``{"handovers": []}`` is itself a truthy dict. The unwrap below is the
+    fix from unblock server.py:4608-4672, kept verbatim in shape.
+
+    ── TRAP (b): STATUS-GUARD ON status == 'open' ──────────────────────────
+    The by-agent query deliberately carries NO status filter (upstream's does
+    not either — only the all-agents path filters). Without the Python guard a
+    cold-resume RESURRECTS a superseded handover and the agent confidently
+    redoes finished work. The guard is what makes the query's missing filter
+    safe; removing either one re-opens the bug.
+    """
+    p = ctx.payload
+    graph_key = _graph_key(ctx)
+    want_all = bool(p.get("all"))
+    await _ensure(graph_key)
+
+    if want_all:
+        # The ALL path filters status IN THE QUERY (upstream parity): latest
+        # OPEN row per agent, the whole team's board.
+        rows, run_ms, _h = await asyncio.to_thread(
+            graphstore.query,
+            "MATCH (a:Agent)-[h:HANDED_OFF_TO {status: '" + HANDOVER_OPEN + "'}]->(b:Agent) "
+            "RETURN a.agent_id, b.agent_id, h ORDER BY h.updated_ts DESC",
+            {},
+            graph_key=graph_key,
+        )
+        best: Dict[str, dict] = {}
+        for a, b, edge in rows:
+            if b not in best:
+                best[b] = _handover_row(a, b, edge)
+        return ok(
+            handovers=list(best.values()),
+            count=len(best),
+            all=True,
+            run_time_ms=run_ms,
+            graph_key=graph_key,
+        )
+
+    agent_id = p.get("agent_id")
+    if not agent_id:
+        return err("MISSING_AGENT_ID", "handover_read requires `agent_id` (or all=true)")
+
+    # NOTE THE ABSENCE OF A STATUS FILTER. It is deliberate and it is the trap.
+    rows, run_ms, _h = await asyncio.to_thread(
+        graphstore.query,
+        "MATCH (a:Agent)-[h:HANDED_OFF_TO]->(b:Agent {agent_id: $agent_id}) "
+        "RETURN a.agent_id, b.agent_id, h ORDER BY h.updated_ts DESC LIMIT 1",
+        {"agent_id": agent_id},
+        graph_key=graph_key,
+        read_only=True,
+    )
+    parsed: Dict[str, Any] = {
+        "handovers": [_handover_row(a, b, edge) for a, b, edge in rows]
+    }
+
+    # ── TRAP (a) ────────────────────────────────────────────────────────────
+    handover_rows = parsed.get("handovers") if isinstance(parsed, dict) else None
+    row = None
+    if isinstance(handover_rows, list) and handover_rows:
+        row = handover_rows[0]
+    if row is None:
+        return ok(
+            handover=None,
+            reason="no handover row for agent {0!r} in graph {1!r}".format(agent_id, graph_key),
+            agent_id=agent_id,
+            run_time_ms=run_ms,
+            graph_key=graph_key,
+        )
+
+    # ── TRAP (b) ────────────────────────────────────────────────────────────
+    if isinstance(row, dict) and row.get("status") == HANDOVER_OPEN:
+        return ok(
+            handover=row,
+            agent_id=agent_id,
+            run_time_ms=run_ms,
+            graph_key=graph_key,
+        )
+    return ok(
+        handover=None,
+        reason="latest row is not open (status={0!r})".format(row.get("status")),
+        agent_id=agent_id,
+        rejected_handover_id=row.get("handover_id"),
+        run_time_ms=run_ms,
+        graph_key=graph_key,
     )
 
 
 async def _h_ask(ctx: RequestCtx) -> dict:
-    return todo(
-        ctx,
-        "HUMAN-IN-THE-LOOP. Port the ordering from unblock's ask() "
-        "(comms/nats_client.py:1318-1400): SUBSCRIBE THE REPLY SUBJECT FIRST, "
-        "then publish the question, THEN race the deadline — otherwise a fast "
-        "responder races ahead of the listener and the answer is lost. On "
-        "timeout return the `default` with timed_out=True; never block "
-        "forever. This is the ONLY question the system is allowed to ask a "
-        "human, and it is always 'approve this action?'.",
+    """The decision card — SHAPE ONLY, no Guild/NATS wiring yet.
+
+    This returns the card the projector and an MCP host render; it does NOT
+    block on a human, because the responder plane (Guild ui_prompt / the NATS
+    reply subject) is a different lane. It is a STUB and says so on the
+    envelope (`pending=True`, `answer=None`) — never a fabricated approval.
+
+    WHEN THE RESPONDER PLANE LANDS, port the ordering from unblock's ask()
+    (comms/nats_client.py:1318-1400): SUBSCRIBE THE REPLY SUBJECT FIRST, then
+    publish the question, THEN race the deadline. A fast responder that answers
+    before the listener exists loses the answer entirely.
+
+    TODO (plan/research/mcp-widgets-guide.md §2.6, tier 2 — the elicitation
+    branch): in a terminal host that declares ``elicitation: {}`` (Claude Code
+    does; verified in-process on mcp 1.29), this same verb must call
+    ``await ctx.elicit(message=..., schema=Approval)`` with a primitives-only
+    pydantic model and map ``r.action == 'accept'`` to the answer, falling back
+    to this text/card payload otherwise. One verb carries BOTH ``_meta.ui`` and
+    the elicitation branch — no fork — because no host today declares both MCP
+    Apps and elicitation. Tier 1 (a meaningful ``content:[{type:'text'}]``) is
+    already satisfied by this envelope; tier 3 (``ctx.report_progress``) belongs
+    to stream_tail, not here.
+    """
+    p = ctx.payload
+    timeout_sec = p.get("timeout_sec", 60.0)
+    card = {
+        "question": p.get("question"),
+        "options": p.get("options") or [],
+        "recommendation": p.get("recommendation"),
+        # BOTH spellings on purpose: `timeoutSec` is unblock's AskOpts field
+        # name (the shape this was lifted from and the one the card renderer
+        # reads); `timeout_sec` is the snake_case wire field the builder emits.
+        "timeoutSec": timeout_sec,
+        "timeout_sec": timeout_sec,
+        "default": p.get("default"),
+        "intent": p.get("intent", "ASK"),
+    }
+    if p.get("default_source"):
+        card["default_source"] = p["default_source"]
+    return ok(
+        status="stub",
+        pending=True,
+        card=card,
+        question_id=graphstore.stable_id("ask", card["question"], time.time_ns()),
+        answer=None,
+        timed_out=False,
+        responder=None,
+        note=(
+            "decision-card SHAPE only — no responder plane wired. This verb "
+            "never fabricates an approval; `act` must refuse a stub approval_id."
+        ),
+        author_agent=ctx.agent,
+        **{k: v for k, v in card.items() if k in ("question", "options", "recommendation", "default")}
     )
 
 
@@ -507,6 +1296,34 @@ def verb_of(name: str) -> str:
 _ID = {"type": "string", "minLength": 1, "maxLength": 256}
 _TOPIC = {"type": "string", "enum": list(config.TOPICS)}
 
+#: Which graph key a memory verb reads/writes. The cold graph is deliberately
+#: empty and exists so the ablation is a real A/B, not a slide.
+_GRAPH = {
+    "type": "string",
+    "enum": [config.GRAPH_WARM, config.GRAPH_COLD],
+    "default": config.GRAPH_WARM,
+    "description": (
+        "Which graph to read/write. The cold graph is deliberately empty and "
+        "exists for the ablation beat."
+    ),
+}
+
+#: A PRECOMPUTED embedding. The bridge never calls an embedding API — there is
+#: no LLM and no network on the live write path. Width is enforced against
+#: config.EMBED_DIM because a mismatch corrupts the HNSW index SILENTLY.
+_EMBEDDING = {
+    "type": "array",
+    "items": {"type": "number"},
+    "minItems": config.EMBED_DIM,
+    "maxItems": config.EMBED_DIM,
+    "description": (
+        "Optional precomputed embedding, exactly {0} floats (config.EMBED_DIM). "
+        "The bridge NEVER calls an embedding API; supply the vector or accept "
+        "the property/fulltext lane. A width mismatch is refused, because it "
+        "corrupts the vector index with no error at all."
+    ).format(config.EMBED_DIM),
+}
+
 
 def _tools() -> List[Tool]:
     return [
@@ -541,12 +1358,37 @@ def _tools() -> List[Tool]:
                     },
                     "labels": {
                         "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Extra node labels, e.g. ['Claim'] or ['Event'].",
+                        "items": {"type": "string", "enum": list(NODE_LABELS)},
+                        "description": (
+                            "Node labels; the FIRST is the node's label. "
+                            "Defaults to ['Claim']; use ['Event'] for an "
+                            "observed edit off the log."
+                        ),
                     },
                     "tags": {"type": "array", "items": {"type": "string", "maxLength": 64}, "maxItems": 32},
                     "metadata": {"type": "object", "additionalProperties": True},
                     "case_id": {"type": "string", "description": "Attach this write to an open case."},
+                    "id": dict(
+                        _ID,
+                        description=(
+                            "Explicit node id. Omit and one is derived from a "
+                            "content hash, which makes remember idempotent."
+                        ),
+                    ),
+                    "embedding": _EMBEDDING,
+                    "ts": {"type": "number", "description": "Observation timestamp (epoch seconds)."},
+                    "gate": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Run the sensing gate: with an embedding supplied, "
+                            "skip the write when the top-1 DISTANCE is below "
+                            "SALIENCE_THRESHOLD (too close to something we "
+                            "already know)."
+                        ),
+                    },
+                    "why": {"type": "string", "description": "Reason text for a case_id link."},
+                    "graph": _GRAPH,
                 },
                 "additionalProperties": False,
             },
@@ -576,6 +1418,7 @@ def _tools() -> List[Tool]:
                         ),
                     },
                     "note": {"type": "string", "maxLength": 2000},
+                    "graph": _GRAPH,
                 },
                 "additionalProperties": False,
             },
@@ -594,16 +1437,13 @@ def _tools() -> List[Tool]:
                 "properties": {
                     "text": {"type": "string", "minLength": 1, "maxLength": 4000},
                     "top_k": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
-                    "labels": {"type": "array", "items": {"type": "string"}},
-                    "graph": {
-                        "type": "string",
-                        "enum": [config.GRAPH_WARM, config.GRAPH_COLD],
-                        "default": config.GRAPH_WARM,
-                        "description": (
-                            "Which graph to read. The cold graph is "
-                            "deliberately empty and exists for the ablation."
-                        ),
+                    "labels": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": list(NODE_LABELS)},
+                        "description": "Labels to search. Default ['Claim', 'Event'].",
                     },
+                    "embedding": _EMBEDDING,
+                    "graph": _GRAPH,
                 },
                 "additionalProperties": False,
             },
@@ -611,24 +1451,40 @@ def _tools() -> List[Tool]:
         Tool(
             name=tool_name("ring"),
             description=(
-                "Traverse the neighbourhood around an anchor node — 'everything "
-                "this actor/page/entity has ever been involved in, N hops out'. "
-                "Use this when you HAVE an entity; use recall when you only "
-                "have prose. Returns paths, which the UI animates."
+                "Detect a CO-EDIT RING: three distinct actors touching two "
+                "distinct pages inside one time window — a four-step chain in "
+                "which no individual edit crosses any threshold. This is the "
+                "verdict nothing else in the stack can express; a vector store "
+                "cannot ask for 'similar to a four-step causal chain'. Returns "
+                "the paths the UI animates plus FalkorDB's own run_time_ms. "
+                "Omit `anchor` to sweep the whole graph."
             ),
             inputSchema={
                 "type": "object",
-                "required": ["anchor"],
                 "properties": {
-                    "anchor": dict(_ID, description="Node id or unique name to traverse from."),
-                    "hops": {"type": "integer", "minimum": 1, "maximum": 5, "default": 3},
-                    "edge_types": {"type": "array", "items": {"type": "string"}},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
-                    "graph": {
-                        "type": "string",
-                        "enum": [config.GRAPH_WARM, config.GRAPH_COLD],
-                        "default": config.GRAPH_WARM,
+                    "anchor": dict(
+                        _ID,
+                        description=(
+                            "Optional Actor.name that must appear in the ring. "
+                            "Omit for a whole-graph sweep (this is what the "
+                            "projector polls)."
+                        ),
+                    ),
+                    "window_s": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2592000,
+                        "default": _RING_WINDOW_S_DEFAULT,
+                        "description": (
+                            "The ring must close within this many seconds. THE "
+                            "discriminator: the same actors and pages spread "
+                            "wider than the window return zero rings."
+                        ),
                     },
+                    "since": {"type": "number", "description": "Lower ts bound (epoch seconds)."},
+                    "until": {"type": "number", "description": "Upper ts bound (epoch seconds)."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+                    "graph": _GRAPH,
                 },
                 "additionalProperties": False,
             },
@@ -643,12 +1499,14 @@ def _tools() -> List[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "graph": {
-                        "type": "string",
-                        "enum": [config.GRAPH_WARM, config.GRAPH_COLD],
-                        "default": config.GRAPH_WARM,
+                    "graph": _GRAPH,
+                    "since": {
+                        "type": "number",
+                        "description": (
+                            "Epoch-seconds floor; only nodes touched at or "
+                            "after this are projected."
+                        ),
                     },
-                    "since": {"type": "string", "description": "ISO-8601; only nodes/edges newer than this."},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 5000, "default": 500},
                 },
                 "additionalProperties": False,
@@ -770,6 +1628,14 @@ def _tools() -> List[Tool]:
                 "required": ["agent_id"],
                 "properties": {
                     "agent_id": dict(_ID, description="Your agent id."),
+                    "to_agent": dict(
+                        _ID,
+                        description=(
+                            "Recipient agent id. Omit for a SELF-handoff (this "
+                            "session hands to the next session of the same "
+                            "agent) — that is the cold-resume path."
+                        ),
+                    ),
                     "role": {"type": "string", "description": "Optional role label."},
                     "session_id": {"type": "string"},
                     "summary": {"type": "string", "description": "What this session did."},
@@ -790,6 +1656,7 @@ def _tools() -> List[Tool]:
                             "exact rather than approximate."
                         ),
                     },
+                    "graph": _GRAPH,
                 },
                 "additionalProperties": False,
             },
@@ -820,6 +1687,7 @@ def _tools() -> List[Tool]:
                             "status is a forensic read, never a resume."
                         ),
                     },
+                    "graph": _GRAPH,
                 },
                 "additionalProperties": False,
             },

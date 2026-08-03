@@ -1,0 +1,22 @@
+# PALIMPSEST bridge — runtime + test dependencies.
+#
+# NEEDS PYTHON >= 3.12. `app/bridge/server.py` itself is deliberately still
+# importable on the system Python 3.9 with NONE of this installed (both the
+# `mcp` and the `falkordb` imports are guarded), so the dispatch table, the tool
+# schemas and the OpenAPI generator stay testable in a bare interpreter. Install
+# this to get the MCP transport and the memory plane:
+#
+#     uv venv --python 3.12 .venv
+#     uv pip install --python .venv/bin/python -r app/bridge/requirements.txt
+
+# The memory plane. Speaks the Redis wire protocol to FalkorDB on 6401.
+falkordb>=1.0,<2
+
+# The MCP surface. THE UPPER BOUND IS LOAD-BEARING: spec revision 2026-07-28
+# (SDK 2.x) removes protocol-level sessions and the `Mcp-Session-Id` header that
+# app/bridge/identity.py keys per-agent identity on. Do not relax it.
+mcp>=1.28,<2
+
+# Test gate (runs against the LIVE container, graph key `palimpsest_test`).
+pytest>=8,<9
+pytest-asyncio>=0.24,<2
