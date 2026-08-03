@@ -1,0 +1,59 @@
+# Build-context hygiene for fly/Dockerfile (context = repo root).
+#
+# NOTE ON LOCATION: this lives at the repo root, not fly/, because the build
+# context IS the repo root (the Dockerfile COPYs app/ and memory/). Both
+# `docker build -f fly/Dockerfile .` and `flyctl deploy` read the ignore file
+# at the context root; a fly/.dockerignore would be silently ignored by both.
+#
+# The Dockerfile only COPYs app/ and memory/, so most of this is belt-and-braces
+# — but keeping .git, any local .env, the venvs and local data OUT of the tarball
+# uploaded to Fly's remote builder is a hard hygiene requirement for a public repo.
+
+# secrets — must never reach the remote builder
+.env
+.env.*
+!.env.example
+*.key
+credentials*.json
+secrets/
+
+# vcs / ci
+.git
+.github
+
+# python caches + venvs
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# node / cloudflare local state
+node_modules/
+dist/
+.wrangler/
+
+# not needed in the image (Dockerfile copies app/, memory/ and fly/entrypoint.sh)
+# fly/ is intentionally NOT ignored — the Dockerfile COPYs fly/entrypoint.sh.
+eval/
+plan/
+vendor/
+demo/
+motion/
+realtime/
+agents/
+deploy/
+
+# local data + runtime artifacts
+*.rdb
+falkordb-data/
+*.log
+*.pid
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/

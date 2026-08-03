@@ -1,0 +1,44 @@
+# PALIMPSEST hosted bridge — a single self-contained machine (FalkorDB + bridge).
+#
+# Deploy from the REPO ROOT (the Dockerfile COPYs app/ and memory/, so the build
+# context must be the repo root, not fly/):
+#
+#   flyctl deploy --config fly/fly.toml --dockerfile fly/Dockerfile --remote-only
+#
+app = "palimpsest-bridge"
+primary_region = "sjc"
+
+[build]
+  # Relative to the build context (the repo root). The CD workflow also passes
+  # --dockerfile explicitly, which wins if a flyctl version resolves this
+  # differently — belt and suspenders so the path is never ambiguous.
+  dockerfile = "fly/Dockerfile"
+
+[env]
+  # FalkorDB on loopback INSIDE the container; the bridge binds all interfaces.
+  FALKORDB_HOST = "127.0.0.1"
+  FALKORDB_PORT = "6401"
+  BRIDGE_PORT = "8931"
+  BRIDGE_BIND_HOST = "0.0.0.0"
+
+[http_service]
+  internal_port = 8931
+  force_https = true
+  # Cost control for a hackathon backend: suspend when idle, wake on request,
+  # keep zero machines running when nobody is looking.
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "15s"
+    timeout = "4s"
+    grace_period = "20s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

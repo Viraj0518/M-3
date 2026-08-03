@@ -53,6 +53,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import socket
 import subprocess
 import time
@@ -110,9 +111,12 @@ _STATUS_BY_CODE: Dict[str, int] = {
 
 #: LaserData's HTTP port on the local stack. A TCP connect is the whole probe —
 #: this process must never take a runtime dependency on the laser SDK just to
-#: answer a healthcheck.
-LASER_PROBE_HOST = "127.0.0.1"
-LASER_PROBE_PORT = 8090
+#: answer a healthcheck. HOST/PORT are env-overridable so a co-located deploy
+#: (e.g. the single-container Fly machine, where the laser spine — if present —
+#: is NOT on the container's own loopback) can point the probe at the real
+#: endpoint; the defaults keep local-stack behaviour identical (127.0.0.1:8090).
+LASER_PROBE_HOST = os.environ.get("LASER_PROBE_HOST") or "127.0.0.1"
+LASER_PROBE_PORT = int(os.environ.get("LASER_PROBE_PORT") or "8090")
 
 #: How long a laser probe result is reused. The healthcheck is polled far more
 #: often than the stack changes state, and a TCP connect per poll on a dead port
@@ -507,9 +511,16 @@ app = create_app()
 def serve() -> None:  # pragma: no cover - process entrypoint
     import uvicorn
 
+    # BRIDGE_BIND_HOST overrides ONLY the uvicorn bind address; it leaves
+    # config.BRIDGE_HOST (which the health/OpenAPI bodies report) untouched. It
+    # DEFAULTS to config.BRIDGE_HOST, so local behaviour is unchanged (127.0.0.1)
+    # — the guard is inert unless the env var is set. The Fly container sets
+    # BRIDGE_BIND_HOST=0.0.0.0 because a container must bind all interfaces to be
+    # reachable, while 127.0.0.1 stays the safe default everywhere else.
+    bind_host = os.environ.get("BRIDGE_BIND_HOST") or config.BRIDGE_HOST
     uvicorn.run(
         app,
-        host=config.BRIDGE_HOST,
+        host=bind_host,
         port=config.BRIDGE_PORT,
         log_level="info",
         access_log=True,
