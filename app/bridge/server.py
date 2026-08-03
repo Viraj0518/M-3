@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
@@ -127,6 +128,16 @@ SERVER_VERSION = "0.1.0"
 #: verb so REST/CLI/OpenAPI stay clean; exactly one function converts between
 #: them, so a rename can never desync two surfaces.
 TOOL_PREFIX = "palimpsest_"
+
+#: The author_agent stamped on an MCP-surface write when the host neither binds
+#: a session nor forwards an ``x-palimpsest-agent`` header — the stdio mount,
+#: which is exactly the surface we hand judges. Without it every MCP write was
+#: attributed to ``identity.UNBOUND_AGENT`` ('unbound'), silently undercutting
+#: GOAL's "the agent knows who it is" pillar on that surface. It is a stable,
+#: NON-SECRET, env-overridable name (never a credential), and it is the LOWEST
+#: rung of the identity ladder in ``identity.resolve`` — an explicit bind, a
+#: forwarded header, and any verified-token selector all still outrank it.
+MCP_DEFAULT_AGENT: str = os.environ.get("PALIMPSEST_MCP_AGENT") or "palimpsest-mcp"
 
 
 # ─── Agent reflex text ──────────────────────────────────────────────────────
@@ -521,6 +532,51 @@ async def _h_relate(ctx: RequestCtx) -> dict:
     graph_key = _graph_key(ctx)
     await _ensure(graph_key)
 
+    # ── ACYCLICITY GUARD for supersedes (Bug: cycles + self-edges accepted) ──
+    # We write (newer)-[:RELATES{relation:'supersedes'}]->(older) and resolve
+    # "current truth" by walking INCOMING supersedes edges to a head (a node
+    # with no incoming supersedes). A self-edge, or an edge that closes a
+    # reachability cycle a→…→a, makes that walk undefined: EVERY node on the
+    # loop has an incoming supersedes, so `_supersede_head` finds NO head and
+    # recall reports superseded:false / head:null — a silent, wrong answer.
+    # Reject at write time so the invariant "supersede lineage is a DAG" holds.
+    # Only supersedes is direction-critical this way; the other relations are
+    # free to form cycles (supports/references/… legitimately can).
+    if relation == "supersedes":
+        if from_id == to_id:
+            return err(
+                "SUPERSEDE_CYCLE",
+                "a node cannot supersede itself ({0!r}); supersede lineage "
+                "must be acyclic".format(from_id),
+                from_id=from_id,
+                to_id=to_id,
+                relation=relation,
+                graph_key=graph_key,
+            )
+        # Adding from→to closes a cycle iff `to` can ALREADY reach `from`
+        # through existing supersedes edges — then from→to→…→from is a loop.
+        cyc, _cyc_ms, _cyc_h = await asyncio.to_thread(
+            graphstore.query,
+            "MATCH path = (t {id: $to_id})-[:RELATES* {relation: 'supersedes'}]->"
+            "(f {id: $from_id}) RETURN count(path) AS n",
+            {"from_id": from_id, "to_id": to_id},
+            graph_key=graph_key,
+            read_only=True,
+        )
+        if cyc and cyc[0][0]:
+            return err(
+                "SUPERSEDE_CYCLE",
+                "refusing '{0!r} supersedes {1!r}': {1!r} already supersedes "
+                "{0!r} (directly or transitively), so this edge would close a "
+                "cycle and leave the supersede chain without a head".format(
+                    from_id, to_id
+                ),
+                from_id=from_id,
+                to_id=to_id,
+                relation=relation,
+                graph_key=graph_key,
+            )
+
     cypher = (
         "MATCH (a {id: $from_id}), (b {id: $to_id}) "
         "MERGE (a)-[r:RELATES {relation: $relation}]->(b) "
@@ -644,11 +700,22 @@ def _supersede_head(graph_key: str, internal_id: int) -> Tuple[Optional[Any], Li
     none left. "You told me X, then Y — here is the current truth and the chain
     that got there." An undirected edge store cannot answer this at all.
     """
+    # DETERMINISTIC head selection. A FORK — new_a→old←new_b — has two valid
+    # heads at the SAME path length, so `ORDER BY length DESC LIMIT 1` alone
+    # picks one ARBITRARILY (a different head across runs). We keep the longest
+    # chain as the primary key, then break every tie with a STABLE key: newest
+    # head first (created_ts, then ts), and finally the head's own id — a value
+    # that is identical across repeated runs of the same seed, so the resolved
+    # head is reproducible rather than nondeterministic.
     rows, _ms, _h = graphstore.query(
         "MATCH (s) WHERE id(s) = $sid "
         "MATCH path = (s)<-[:RELATES* {relation: 'supersedes'}]-(head) "
         "WHERE NOT (head)<-[:RELATES {relation: 'supersedes'}]-() "
-        "RETURN head, nodes(path), length(path) ORDER BY length(path) DESC LIMIT 1",
+        "RETURN head, nodes(path), length(path) "
+        "ORDER BY length(path) DESC, "
+        "         coalesce(head.created_ts, head.ts, 0) DESC, "
+        "         coalesce(head.id, toString(id(head))) ASC "
+        "LIMIT 1",
         {"sid": int(internal_id)},
         graph_key=graph_key,
     )
@@ -1866,6 +1933,7 @@ async def dispatch(
     headers: Optional[dict] = None,
     surface: str = "mcp",
     is_stdio: bool = False,
+    default_agent: Optional[str] = None,
 ) -> dict:
     """Resolve one call to one handler. THE chokepoint — every surface enters
     here, so retries, error envelopes, identity resolution and header handling
@@ -1921,6 +1989,7 @@ async def dispatch(
         session_id or hdr_session,
         is_stdio=is_stdio,
         header_selector=hdr_agent,
+        default=default_agent,
     )
 
     ctx = RequestCtx(
@@ -2037,6 +2106,46 @@ def openapi_spec(base_url: Optional[str] = None) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 server = None
+
+
+def _mcp_request_identity() -> Tuple[Optional[str], Optional[dict]]:
+    """Best-effort ``(session_id, headers)`` for the MCP surface.
+
+    The stdio mount carries NO HTTP headers, so this returns ``(None, None)``
+    and :func:`dispatch` falls through the identity ladder to
+    :data:`MCP_DEFAULT_AGENT` — a real author, never 'unbound'. On a
+    streamable-http mount the host MAY forward ``Mcp-Session-Id`` and/or
+    ``x-palimpsest-agent``; when the SDK exposes them on its per-request
+    context we thread them through the SAME header ladder the REST surface
+    uses, so a forwarded agent still wins over the default (and an explicit
+    binding, or a future verified-token selector, still wins over the header).
+
+    It is deliberately defensive: the SDK's ``request_context`` is a contextvar
+    that raises when read outside a request and whose ``request`` shape varies
+    by transport, so every access is guarded and any failure degrades to the
+    configured default rather than crashing a tool call.
+    """
+    srv = server
+    if srv is None:
+        return (None, None)
+    try:
+        ctx = srv.request_context
+    except Exception:  # noqa: BLE001 - LookupError outside a request, etc.
+        return (None, None)
+    headers: Optional[dict] = None
+    request = getattr(ctx, "request", None)
+    raw_headers = getattr(request, "headers", None)
+    if raw_headers:
+        try:
+            headers = dict(raw_headers)
+        except Exception:  # noqa: BLE001 - unknown header container shape
+            headers = None
+    session_id: Optional[str] = None
+    if headers:
+        session_id, _ = identity.selector_from_headers(headers)
+    return (session_id, headers)
+
+
 if MCP_AVAILABLE:  # pragma: no cover - requires the SDK
     server = Server(SERVER_NAME, instructions=INSTRUCTIONS)
 
@@ -2046,7 +2155,22 @@ if MCP_AVAILABLE:  # pragma: no cover - requires the SDK
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict) -> List[TextContent]:
-        result = await dispatch(name, arguments or {}, is_stdio=True, surface="mcp")
+        # BUG FIX: bind identity from the request BEFORE the write verb runs, so
+        # an MCP-surface write carries a real author_agent instead of 'unbound'.
+        # A forwarded x-palimpsest-agent/Mcp-Session-Id is honored via the same
+        # header ladder as REST; the stdio mount (no headers) falls to the
+        # configured MCP_DEFAULT_AGENT. is_stdio stays true when no session is
+        # forwarded, preserving the one-process-one-session stdio semantics.
+        session_id, headers = _mcp_request_identity()
+        result = await dispatch(
+            name,
+            arguments or {},
+            session_id=session_id,
+            headers=headers,
+            surface="mcp",
+            is_stdio=session_id is None,
+            default_agent=MCP_DEFAULT_AGENT,
+        )
         return [TextContent(type="text", text=json.dumps(result, default=str))]
 
 

@@ -105,6 +105,7 @@ def resolve(
     *,
     is_stdio: bool = False,
     header_selector: Optional[str] = None,
+    default: Optional[str] = None,
 ) -> str:
     """Resolve the ACTING agent for one request. Never raises; never guesses.
 
@@ -117,8 +118,16 @@ def resolve(
          shared stdio bucket. That is the isolation hole the upstream review
          caught, and re-opening it would let two sessionless requests read each
          other's identity.
-      3. An explicit per-request ``header_selector`` (the post-MCP-2.x path).
-      4. :data:`UNBOUND_AGENT` — honest, not a fabricated identity.
+      3. An explicit per-request ``header_selector`` (the post-MCP-2.x path,
+         and the ``x-palimpsest-agent`` an MCP host may forward).
+      4. A surface-supplied ``default`` — a stable, configured author for a
+         surface that has no session and no header (the MCP stdio mount), so a
+         real write is never stamped :data:`UNBOUND_AGENT`. It is the LOWEST
+         precedence on purpose: an explicit binding, a forwarded header, and
+         any future verified-token selector all still outrank it, so this can
+         never mask a real identity — it only replaces the honest-but-useless
+         'unbound' fallback with an honest-and-useful configured name.
+      5. :data:`UNBOUND_AGENT` — honest, not a fabricated identity.
     """
     if is_stdio:
         found = bound(None)
@@ -130,6 +139,8 @@ def resolve(
         return found
     if header_selector and isinstance(header_selector, str):
         return header_selector
+    if default and isinstance(default, str):
+        return default
     return UNBOUND_AGENT
 
 
