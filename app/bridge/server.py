@@ -851,6 +851,34 @@ async def _h_ring(ctx: RequestCtx) -> dict:
     )
 
 
+# ─── ablation (the opposite-verdict proof) ───────────────────────────────────
+
+async def _h_ablation(ctx: RequestCtx) -> dict:
+    """THE REAL ABLATION — same new event, two differently-seeded graphs,
+    OPPOSITE mechanical verdict (GOAL victory condition 1, NEVER cut).
+
+    Runs ``realtime.ablation.run_ablation``: seeds a WARM graph with the full
+    historical co-edit corpus + one new event, and a COLD graph with ONLY that
+    new event, then runs the SAME ``_h_ring`` verdict against both. WARM fires
+    (escalate); COLD does not (dismiss). Topology-only — no LLM, no key, pure
+    Cypher — so this is safe to call live from the UI/demo.
+
+    Distinct from ``stream_replay`` (which proves REPRODUCIBILITY: replay-from-0
+    re-derives the identical graph). Reproducibility is graph EQUALITY; the
+    ablation is the opposite verdict. Both are real; they are different claims.
+
+    Uses dedicated, NON-DESTRUCTIVE keys (``palimpsest_ablation_warm`` /
+    ``palimpsest_ablation_cold``) so the live demo graphs are never touched.
+    """
+    from realtime import ablation  # lazy: keeps server.py importable without the realtime deps hot
+
+    p = ctx.payload
+    window_s = _int(p.get("window_s"), _RING_WINDOW_S_DEFAULT, 1, 86400 * 30)
+    res = await ablation.run_ablation(window_s=window_s)
+    res.setdefault("author_agent", ctx.agent)
+    return res
+
+
 # ─── graph (the UI projection) ──────────────────────────────────────────────
 
 async def _h_graph(ctx: RequestCtx) -> dict:
@@ -1316,6 +1344,7 @@ _VERB_DISPATCH: Dict[str, Tuple[str, str, Builder, Handler]] = {
     "relate": ("POST", "/v1/relate", _passthrough, _h_relate),
     "recall": ("POST", "/v1/recall", _passthrough, _h_recall),
     "ring": ("POST", "/v1/ring", _passthrough, _h_ring),
+    "ablation": ("GET", "/v1/ablation", _passthrough, _h_ablation),
     "graph": ("GET", "/v1/graph", _passthrough, _h_graph),
     # ── stream ──────────────────────────────────────────────────────────────
     "stream_publish": ("POST", "/v1/stream/{topic}", _strip_keys("topic"), _h_stream_publish),
@@ -1542,6 +1571,36 @@ def _tools() -> List[Tool]:
                     "until": {"type": "number", "description": "Upper ts bound (epoch seconds)."},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
                     "graph": _GRAPH,
+                },
+                "additionalProperties": False,
+            },
+        ),
+        Tool(
+            name=tool_name("ablation"),
+            description=(
+                "Run the cold-vs-warm ablation LIVE and return the "
+                "opposite-verdict proof. Seeds a WARM graph with the historical "
+                "co-edit corpus plus one new event, and a COLD graph with ONLY "
+                "that same new event, then runs the identical 3-hop ring query "
+                "against both: WARM fires (escalate), COLD does not (dismiss). "
+                "Topology-only — no LLM, no key, pure Cypher, milliseconds. This "
+                "is the headline beat (GOAL victory condition 1); it is a "
+                "DIFFERENT claim from stream_replay's reproducibility digest. "
+                "Non-destructive: uses dedicated palimpsest_ablation_* keys."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "window_s": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2592000,
+                        "default": _RING_WINDOW_S_DEFAULT,
+                        "description": (
+                            "The ring window handed to BOTH graphs — the same "
+                            "discriminator the /ring verb uses."
+                        ),
+                    },
                 },
                 "additionalProperties": False,
             },

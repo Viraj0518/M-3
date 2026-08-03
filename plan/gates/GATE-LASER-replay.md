@@ -1,7 +1,23 @@
-# GATE-LASER receipt — the REWIND A/B is real (replay-from-0 re-derives the identical graph)
+# GATE-LASER receipt — REPRODUCIBILITY: replay-from-0 re-derives the identical graph
 
-**Status: GREEN** · 2026-08-03 · LaserData→FalkorDB spine live end-to-end on the Mac ·
-proves GOAL victory condition 1 ("the ablation lands live") at the mechanism level.
+**Status: GREEN** · 2026-08-03 · LaserData→FalkorDB spine live end-to-end on the Mac.
+
+> ⚠️ **HONEST SCOPE CORRECTION (2026-08-03).** This gate proves **REPRODUCIBILITY** — that
+> replaying the durable log from offset 0 re-derives a **byte-identical** graph
+> (`digest_warm == digest_cold`, an **EQUALITY**). That is a real and valuable LaserData
+> property, but it is **NOT** the cold-vs-warm ablation and does **NOT** by itself prove GOAL
+> victory condition 1. The ablation is an **opposite verdict** on the **same** event fed to two
+> **differently-seeded** graphs — a **DIFFERENCE**, not an equality. Asserting graph equality
+> can never demonstrate opposite verdicts (two identical graphs answer identically). The real
+> ablation now lives in `realtime/ablation.py` + the `/ablation` bridge verb, with its own
+> receipt at **`plan/gates/GATE-ABLATION.md`**. Read the two gates together: this one =
+> "the log faithfully rebuilds memory"; GATE-ABLATION = "memory changes the verdict".
+>
+> The digest below was also hardened on 2026-08-03 to include `author_agent` on nodes and
+> edges (see `realtime/pipeline.digest_graph`), so a replay that re-derived the same topology
+> under a **different** author no longer false-passes the match. The equality still holds for a
+> TRUE same-attribution replay (author is deterministic on the write path); the recorded hash
+> value in this document predates that change and is illustrative only.
 
 ## Transport used
 
@@ -56,8 +72,9 @@ elapsed: 80.8s total (produce 50s + two full builds + derivations)
 
 Two **independent** LaserData read mechanisms (consumer group vs replay-from-0), over the
 same durable log, re-derive a **byte-identical** attributed graph. That is the falsifiable
-claim behind the cold-vs-warm ablation, proven at the mechanism level with a saved artifact
-rather than asserted.
+**reproducibility** claim (the log rebuilds memory exactly), proven with a saved artifact
+rather than asserted. It is the FOUNDATION the ablation stands on — but it is not the ablation
+itself; the opposite-verdict proof is `plan/gates/GATE-ABLATION.md`.
 
 Canonical demo graphs also populated by the same run (additive, non-destructive — the
 hand-seeded ring corpus in warm `palimpsest` is preserved):

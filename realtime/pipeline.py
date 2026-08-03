@@ -17,6 +17,17 @@ TWO BUILD ENTRY POINTS, on purpose:
 ``digest_graph`` hashes DOMAIN keys (Actor.name / Page.title / Wiki.code /
 Event.id), never FalkorDB internal ids (which differ between graph keys), so two
 independently-built graphs with the same content hash identically.
+
+ATTRIBUTION IS IN THE DIGEST (the honest-receipt fix). The reproducibility claim
+is "byte-identical ATTRIBUTED graph", so ``author_agent`` — the field that makes
+"analyst asserted X, watcher contradicted it" a graph fact — is part of both the
+node and the edge digest. Without it, a replay that re-derived the same topology
+under a DIFFERENT author would false-pass the match. ``author_agent`` is
+deterministic on the write path (the writer stamps a fixed selector), so a TRUE
+same-attribution replay still matches exactly; only a PERTURBED author changes
+the hash — which is what makes the digest load-bearing rather than decorative.
+Wall-clock properties (``created_ts = timestamp()``) stay OUT, because they
+differ per build and would make the equality a coin flip.
 """
 
 from __future__ import annotations
@@ -43,32 +54,38 @@ def digest_graph(graph_key: str) -> Dict[str, Any]:
     """A deterministic node/edge digest of a graph key. Returns
     ``{node_count, edge_count, node_digest, edge_digest, digest}``.
 
-    Independent of internal ids: nodes hash on ``(label, domain_key)`` and edges
-    on ``(src_key, rel_type, event_id?, dst_key)`` so the same content in two
-    different graph keys yields the same digest.
+    Independent of internal ids: nodes hash on ``(label, domain_key, author)``
+    and edges on ``(src_key, rel_type, event_id?, dst_key, author)`` so the same
+    ATTRIBUTED content in two different graph keys yields the same digest — and a
+    change in ``author_agent`` alone changes it (the honest-receipt fix).
     """
     gk = graphstore.check_graph_key(graph_key)
 
     node_rows, _ms, _h = graphstore.query(
-        "MATCH (n) RETURN labels(n)[0] AS label, " + _DOMAIN_KEY + " AS key "
-        "ORDER BY label, key",
+        "MATCH (n) RETURN labels(n)[0] AS label, " + _DOMAIN_KEY + " AS key, "
+        "       coalesce(n.author_agent, '') AS author "
+        "ORDER BY label, key, author",
         {},
         graph_key=gk,
         read_only=True,
     )
-    node_lines = ["{0}\x1f{1}".format(r[0], r[1]) for r in node_rows]
+    node_lines = ["{0}\x1f{1}\x1f{2}".format(r[0], r[1], r[2]) for r in node_rows]
 
     edge_rows, _ms2, _h2 = graphstore.query(
         "MATCH (a)-[r]->(b) "
         "RETURN coalesce(a.name, a.title, a.code, a.id, '') AS ak, "
         "       type(r) AS rel, coalesce(r.event_id, r.relation, '') AS rk, "
-        "       coalesce(b.name, b.title, b.code, b.id, '') AS bk "
-        "ORDER BY ak, rel, rk, bk",
+        "       coalesce(b.name, b.title, b.code, b.id, '') AS bk, "
+        "       coalesce(r.author_agent, '') AS author "
+        "ORDER BY ak, rel, rk, bk, author",
         {},
         graph_key=gk,
         read_only=True,
     )
-    edge_lines = ["{0}\x1f{1}\x1f{2}\x1f{3}".format(r[0], r[1], r[2], r[3]) for r in edge_rows]
+    edge_lines = [
+        "{0}\x1f{1}\x1f{2}\x1f{3}\x1f{4}".format(r[0], r[1], r[2], r[3], r[4])
+        for r in edge_rows
+    ]
 
     node_digest = hashlib.sha256("\n".join(sorted(node_lines)).encode("utf-8")).hexdigest()
     edge_digest = hashlib.sha256("\n".join(sorted(edge_lines)).encode("utf-8")).hexdigest()
