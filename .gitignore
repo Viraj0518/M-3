@@ -1,0 +1,32 @@
+# secrets — never commit key material
+.env
+.env.*
+*.key
+credentials*.json
+secrets/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# node
+node_modules/
+dist/
+.next/
+*.tsbuildinfo
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
+
+# local data
+*.rdb
+falkordb-data/
+*.log
