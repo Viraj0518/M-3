@@ -26,7 +26,7 @@
       --violet: #bba7ff;
       --violet-dim: #292345;
       --blue: #70a7ff;
-      --radius: 11px;
+      --radius: 8px;
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     }
@@ -57,7 +57,7 @@
       width: 100vw;
       height: 100vh;
       display: grid;
-      grid-template-rows: 70px minmax(0, 1fr) 76px;
+      grid-template-rows: 68px minmax(0, 1fr) 82px;
     }
 
     .topbar {
@@ -155,9 +155,9 @@
     .workspace {
       min-height: 0;
       display: grid;
-      grid-template-columns: minmax(0, 1.82fr) minmax(380px, .72fr);
-      gap: 11px;
-      padding: 11px;
+      grid-template-columns: minmax(0, 1.94fr) minmax(390px, .66fr);
+      gap: 10px;
+      padding: 10px;
     }
 
     .panel {
@@ -170,7 +170,7 @@
     }
 
     .panel-heading {
-      height: 50px;
+      height: 56px;
       display: flex;
       align-items: center;
       gap: 12px;
@@ -186,10 +186,10 @@
       text-transform: uppercase;
     }
 
-    .panel-title { margin: 0; font-size: 19px; font-weight: 735; letter-spacing: .01em; }
+    .panel-title { margin: 0; font-size: clamp(18px, 1.2vw, 23px); font-weight: 780; letter-spacing: 0; }
     .panel-meta { margin-left: auto; color: var(--muted); font: 600 11px/1 var(--mono); letter-spacing: .02em; }
 
-    .graph-shell { display: grid; grid-template-rows: 50px minmax(0, 1fr); }
+    .graph-shell { display: grid; grid-template-rows: 56px minmax(0, 1fr); }
 
     .graph-legend { display: flex; align-items: center; gap: 14px; margin-left: auto; }
     .legend-item { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
@@ -203,9 +203,57 @@
     .graph-stage.split .split-stage { display: grid; }
 
     .graph-panel { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #070b0f; }
-    .graph-panel.cold { background: radial-gradient(circle at 40% 45%, rgba(255, 105, 113, .045), transparent 42%), #070b0f; }
-    .graph-panel.warm { background: radial-gradient(circle at 55% 45%, rgba(75, 225, 242, .05), transparent 45%), #070b0f; }
+    .graph-panel.cold { background: linear-gradient(180deg, rgba(64, 19, 24, .5), transparent 34%), radial-gradient(circle at 40% 45%, rgba(255, 105, 113, .06), transparent 44%), #070b0f; }
+    .graph-panel.warm { background: linear-gradient(180deg, rgba(13, 62, 70, .48), transparent 34%), radial-gradient(circle at 55% 45%, rgba(75, 225, 242, .075), transparent 46%), #070b0f; }
     canvas { width: 100%; height: 100%; display: block; }
+
+    .ablation-input {
+      position: absolute;
+      z-index: 7;
+      top: 14px;
+      left: 50%;
+      width: min(740px, calc(100% - 52px));
+      transform: translateX(-50%);
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 11px 14px;
+      border: 1px solid rgba(244, 248, 251, .34);
+      border-radius: 8px;
+      background: rgba(5, 8, 12, .94);
+      box-shadow: 0 18px 54px rgba(0, 0, 0, .42), 0 0 0 1px rgba(75, 225, 242, .1);
+      backdrop-filter: blur(9px);
+    }
+
+    .ablation-input span {
+      color: #05070a;
+      background: var(--text);
+      padding: 6px 8px;
+      border-radius: 5px;
+      font: 850 11px/1 var(--mono);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .ablation-input strong {
+      min-width: 0;
+      color: #fff;
+      font-size: clamp(18px, 1.48vw, 27px);
+      line-height: 1.02;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .ablation-input small {
+      color: var(--cyan);
+      font: 800 11px/1.2 var(--mono);
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
 
     .canvas-label {
       position: absolute;
@@ -223,9 +271,19 @@
       letter-spacing: .13em;
     }
 
+    .graph-stage.split .canvas-label {
+      top: 84px;
+      left: 18px;
+      gap: 11px;
+      padding: 10px 12px;
+      background: rgba(5, 8, 12, .88);
+      font-size: 15px;
+    }
+
     .canvas-label .cold-text { color: var(--red); }
     .canvas-label .warm-text { color: var(--cyan); }
     .canvas-label small { color: var(--faint); font-size: 9px; letter-spacing: .08em; }
+    .graph-stage.split .canvas-label small { color: #c8d2da; font-size: 10px; }
 
     .graph-count {
       position: absolute;
@@ -235,6 +293,13 @@
       font: 650 11px/1 var(--mono);
       letter-spacing: .04em;
       text-shadow: 0 2px 7px #000;
+    }
+
+    .graph-stage.split .graph-count {
+      top: 92px;
+      right: 18px;
+      color: #d9e3e9;
+      font-size: 12px;
     }
 
     .query-result {
@@ -273,21 +338,41 @@
       backdrop-filter: blur(10px);
     }
 
+    .graph-stage.split .verdict-card {
+      left: 18px;
+      right: 18px;
+      bottom: 18px;
+      height: 232px;
+      min-height: 170px;
+      grid-template-columns: minmax(118px, .28fr) minmax(0, 1fr);
+      gap: 16px;
+      padding: 18px;
+      box-shadow: 0 24px 70px rgba(0, 0, 0, .52);
+    }
+
     .verdict-card.cold { border-color: #8d3940; background: rgba(38, 13, 17, .92); }
     .verdict-card.warm { border-color: #267e89; background: rgba(6, 31, 36, .92); }
     .turns { display: flex; flex-direction: column; justify-content: center; align-items: center; border-right: 1px solid rgba(255, 255, 255, .13); }
     .turns strong { font: 820 39px/.9 var(--mono); font-variant-numeric: tabular-nums; }
     .turns span { margin-top: 6px; color: var(--muted); font: 700 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+    .turns em { margin-top: 7px; color: #eef5f8; font: 800 11px/1.1 var(--mono); font-style: normal; letter-spacing: .08em; text-transform: uppercase; }
+    .graph-stage.split .turns strong { font-size: clamp(68px, 6.2vw, 104px); letter-spacing: -.06em; }
+    .graph-stage.split .turns span { font-size: 12px; }
     .verdict-label { font: 750 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
     .cold .verdict-label, .cold .turns strong { color: var(--red); }
     .warm .verdict-label, .warm .turns strong { color: var(--cyan); }
     .verdict-text { margin-top: 5px; font-size: clamp(15px, 1.12vw, 21px); font-weight: 780; line-height: 1.1; }
+    .graph-stage.split .verdict-label { font-size: 12px; }
+    .graph-stage.split .verdict-text { margin-top: 8px; font-size: clamp(34px, 3.55vw, 62px); font-weight: 880; line-height: .9; letter-spacing: 0; }
+    .verdict-subline { margin-top: 8px; color: #e7eef3; font-size: clamp(14px, 1vw, 18px); font-weight: 700; line-height: 1.2; }
     .transcript { margin-top: 7px; color: #b2bec8; font: 560 10px/1.35 var(--mono); }
+    .graph-stage.split .transcript { margin-top: 10px; color: #cdd7de; font-size: clamp(11px, .86vw, 14px); }
     .transcript span { color: #667583; }
 
     .right-rail { min-height: 0; display: grid; grid-template-rows: minmax(0, .92fr) minmax(0, 1.08fr); gap: 11px; }
 
-    .agent-panel, .case-panel { display: grid; grid-template-rows: 50px minmax(0, 1fr); }
+    .agent-panel { display: grid; grid-template-rows: 56px auto minmax(0, 1fr); }
+    .case-panel { display: grid; grid-template-rows: 56px minmax(0, 1fr); }
 
     .lane-state {
       display: flex;
@@ -301,6 +386,30 @@
     }
 
     .lane-state .status-dot { width: 6px; height: 6px; animation: breathe 1.8s ease-in-out infinite; }
+
+    .handover-map {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 10px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(5, 8, 12, .56);
+    }
+
+    .handover-chip {
+      min-width: 0;
+      padding: 9px 10px;
+      border: 1px solid #293846;
+      border-radius: 7px;
+      background: #0a1016;
+    }
+
+    .handover-chip.identity { border-color: rgba(105, 230, 165, .48); background: rgba(15, 42, 31, .66); }
+    .handover-chip.wave { border-color: rgba(187, 167, 255, .46); background: rgba(35, 28, 63, .58); }
+    .handover-chip.guild { border-color: rgba(255, 193, 92, .46); background: rgba(51, 38, 16, .58); }
+    .handover-chip span { display: block; color: var(--muted); font: 800 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+    .handover-chip strong { display: block; margin-top: 5px; overflow: hidden; color: #f4f8fb; font-size: 14px; font-weight: 820; line-height: 1.08; text-overflow: ellipsis; white-space: nowrap; }
+    .handover-chip small { display: block; margin-top: 5px; color: #abb8c2; font-size: 11px; line-height: 1.25; }
 
     .agent-feed {
       min-height: 0;
@@ -335,18 +444,18 @@
     .case-title { margin: 5px 0 0; font-size: 16px; font-weight: 750; line-height: 1.25; }
     .severity { padding: 6px 8px; border: 1px solid var(--red); border-radius: 5px; background: var(--red-dim); color: #ffc9cc; font: 800 9px/1 var(--mono); letter-spacing: .12em; }
 
-    .approval-card { margin-top: 10px; padding: 12px; border: 1px solid #8a6e38; border-radius: 8px; background: linear-gradient(135deg, rgba(59, 43, 15, .62), rgba(21, 18, 12, .78)); }
+    .approval-card { margin-top: 12px; padding: 15px; border: 1px solid #b99147; border-radius: 8px; background: linear-gradient(135deg, rgba(80, 55, 14, .72), rgba(24, 19, 10, .9)); box-shadow: 0 18px 48px rgba(0, 0, 0, .26); }
     .approval-card.approved { border-color: #397c5b; background: rgba(14, 46, 32, .7); }
     .approval-card.dismissed { border-color: #734048; background: rgba(51, 19, 24, .7); }
     .approval-top { display: flex; align-items: center; gap: 8px; }
-    .approval-label { color: var(--amber); font: 800 9px/1 var(--mono); letter-spacing: .13em; text-transform: uppercase; }
+    .approval-label { color: var(--amber); font: 850 11px/1 var(--mono); letter-spacing: .13em; text-transform: uppercase; }
     .approval-card.approved .approval-label { color: var(--green); }
     .approval-card.dismissed .approval-label { color: var(--red); }
-    .countdown { margin-left: auto; color: #ffe3aa; font: 780 14px/1 var(--mono); font-variant-numeric: tabular-nums; }
-    .approval-question { margin: 9px 0 5px; font-size: 19px; font-weight: 770; line-height: 1.22; }
-    .recommendation { color: #c0cbd3; font-size: 12px; line-height: 1.42; }
+    .countdown { margin-left: auto; color: #ffe3aa; font: 850 17px/1 var(--mono); font-variant-numeric: tabular-nums; }
+    .approval-question { margin: 12px 0 6px; font-size: clamp(22px, 1.5vw, 28px); font-weight: 820; line-height: 1.08; }
+    .recommendation { color: #d3dde4; font-size: 13px; line-height: 1.38; }
     .approval-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 11px; }
-    .approval-button { height: 38px; border: 1px solid; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 820; letter-spacing: .09em; text-transform: uppercase; }
+    .approval-button { height: 44px; border: 1px solid; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 840; letter-spacing: .08em; text-transform: uppercase; }
     .approval-button.approve { border-color: var(--green); background: var(--green-dim); color: #c7f9dc; }
     .approval-button.dismiss { border-color: #6c7883; background: #171d23; color: #c4cdd4; }
     .approval-button:focus-visible { outline: 2px solid white; outline-offset: 2px; }
@@ -368,7 +477,7 @@
     .bottom-strip {
       min-width: 0;
       display: grid;
-      grid-template-columns: minmax(310px, .82fr) minmax(490px, 1.35fr) auto;
+      grid-template-columns: minmax(330px, .78fr) minmax(520px, 1.45fr) auto;
       gap: 0;
       align-items: stretch;
       margin: 0 11px 10px;
@@ -388,10 +497,12 @@
     .offset strong { display: block; margin-top: 5px; color: #d7e2e9; font: 720 13px/1 var(--mono); font-variant-numeric: tabular-nums; }
     .lag { color: var(--green) !important; }
 
-    .gate-stat { justify-content: center; gap: 14px; background: linear-gradient(90deg, rgba(75, 225, 242, .025), rgba(75, 225, 242, .055)); }
-    .gate-stat .big-stat { color: #f1fbfd; font: 770 clamp(15px, 1.15vw, 21px)/1 var(--mono); letter-spacing: -.035em; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .gate-stat .big-stat strong { color: var(--cyan); }
-    .gate-name { color: var(--cyan); font: 760 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+    .sponsor-gates { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding: 0; background: linear-gradient(90deg, rgba(75, 225, 242, .025), rgba(187, 167, 255, .055)); }
+    .sponsor-cell { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 5px; padding: 0 13px; border-right: 1px solid var(--line); }
+    .sponsor-cell:last-child { border-right: 0; }
+    .sponsor-cell span { color: var(--muted); font: 800 9px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; white-space: nowrap; }
+    .sponsor-cell strong { overflow: hidden; color: #f1fbfd; font: 820 clamp(14px, 1vw, 19px)/1 var(--mono); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+    .sponsor-cell small { overflow: hidden; color: #94a3af; font-size: 10px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
     .sync-block { border-right: 0; flex-direction: column; align-items: flex-end; justify-content: center; gap: 6px; min-width: 180px; }
     .sync-time { color: var(--muted); font: 660 10px/1 var(--mono); font-variant-numeric: tabular-nums; }
 
@@ -408,6 +519,9 @@
       .graph-legend .legend-item:nth-last-child(-n+2) { display: none; }
       .bottom-strip { grid-template-columns: minmax(280px, .8fr) minmax(470px, 1.3fr) auto; }
       .offsets { gap: 10px; }
+      .ablation-input { width: min(630px, calc(100% - 44px)); }
+      .ablation-input small { display: none; }
+      .handover-chip small { display: none; }
     }
 
     @media (max-width: 1050px) {
@@ -418,6 +532,43 @@
       .workspace { grid-template-columns: minmax(0, 1fr) 355px; }
       .bottom-strip { grid-template-columns: 270px minmax(440px, 1fr) auto; }
       .sync-block { min-width: 145px; }
+      .sponsor-cell { padding: 0 9px; }
+      .graph-stage.split .verdict-card { grid-template-columns: 102px minmax(0, 1fr); }
+    }
+
+    @media (max-height: 700px) {
+      .app-shell { grid-template-rows: 60px minmax(0, 1fr) 74px; }
+      .topbar { padding: 0 14px; }
+      .brand-mark { width: 32px; height: 32px; }
+      .brand-name { font-size: 17px; }
+      .control-button { height: 36px; padding: 0 11px; font-size: 11px; }
+      .workspace { gap: 9px; padding: 9px; }
+      .right-rail { gap: 9px; grid-template-rows: minmax(0, .82fr) minmax(0, 1.18fr); }
+      .panel-heading { height: 48px; padding: 0 12px; }
+      .graph-shell { grid-template-rows: 48px minmax(0, 1fr); }
+      .agent-panel { grid-template-rows: 48px auto minmax(0, 1fr); }
+      .case-panel { grid-template-rows: 48px minmax(0, 1fr); }
+      .handover-map { gap: 6px; padding: 7px; }
+      .handover-chip { padding: 6px 8px; }
+      .handover-chip strong { font-size: 13px; }
+      .handover-chip small { display: none; }
+      .feed-row { padding: 7px 4px; }
+      .case-content { padding: 9px; }
+      .case-summary { gap: 6px; padding-bottom: 7px; }
+      .case-id { font-size: 9px; }
+      .case-title { margin-top: 4px; font-size: 14px; line-height: 1.2; }
+      .severity { padding: 5px 7px; }
+      .approval-card { margin-top: 8px; padding: 12px; }
+      .approval-label { font-size: 10px; }
+      .countdown { font-size: 15px; }
+      .approval-question { margin: 9px 0 5px; font-size: 21px; }
+      .recommendation { display: none; }
+      .approval-actions { margin-top: 9px; }
+      .approval-button { height: 37px; font-size: 11px; }
+      .actions-heading, .action-list { display: none; }
+      .bottom-strip { margin: 0 9px 8px; }
+      .strip-block { padding: 0 12px; }
+      .offsets { gap: 10px; }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -443,17 +594,17 @@
       <div class="topbar-spacer"></div>
 
       <nav class="demo-controls" aria-label="Demo controls">
-        <button id="ringButton" class="control-button primary" type="button"><span class="control-key">R</span>3-hop reveal</button>
-        <button id="splitButton" class="control-button" type="button" aria-pressed="false"><span class="control-key">S</span>Cold | Warm</button>
-        <button id="approvalResetButton" class="control-button" type="button"><span class="control-key">A</span>Approval</button>
+        <button id="ringButton" class="control-button primary" type="button" aria-keyshortcuts="R">3-hop reveal</button>
+        <button id="splitButton" class="control-button active" type="button" aria-pressed="true" aria-keyshortcuts="S">Cold | Warm</button>
+        <button id="approvalResetButton" class="control-button" type="button" aria-keyshortcuts="A">Approval</button>
       </nav>
     </header>
 
     <div class="workspace">
       <section class="panel graph-shell" aria-labelledby="graphTitle">
         <div class="panel-heading">
-          <span class="eyebrow">01</span>
-          <h1 id="graphTitle" class="panel-title">Live graph</h1>
+          <span class="eyebrow">FalkorDB</span>
+          <h1 id="graphTitle" class="panel-title">Same event, opposite verdicts</h1>
           <div class="graph-legend" aria-label="Graph legend">
             <span class="legend-item"><i class="legend-dot" style="--dot: var(--amber)"></i>Actor</span>
             <span class="legend-item"><i class="legend-dot" style="--dot: var(--violet)"></i>Page</span>
@@ -463,7 +614,7 @@
           </div>
         </div>
 
-        <div id="graphStage" class="graph-stage">
+        <div id="graphStage" class="graph-stage split">
           <div class="single-stage">
             <div class="graph-panel">
               <canvas id="liveCanvas" aria-label="Live force-directed graph of actors, pages, events, cases, and agents"></canvas>
@@ -477,16 +628,22 @@
           </div>
 
           <div class="split-stage" aria-label="Cold and warm memory comparison">
+            <div class="ablation-input" aria-label="Identical event entering cold and warm agents">
+              <span>Same event</span>
+              <strong>Transit authority safety page edited by Northstar-7</strong>
+              <small>LaserData offset <b id="sameInputOffset">041,208</b></small>
+            </div>
             <div class="graph-panel cold">
               <canvas id="coldCanvas" aria-label="Cold replay graph"></canvas>
               <div class="canvas-label"><span class="cold-text">COLD</span><small>EMPTY MEMORY</small></div>
               <div id="coldGraphCount" class="graph-count">8 nodes · replaying offset 0</div>
               <div class="verdict-card cold">
-                <div class="turns"><strong>04</strong><span>turns to answer</span></div>
+                <div class="turns"><strong>04</strong><span>turns</span><em>interrogation</em></div>
                 <div>
-                  <div class="verdict-label">Verdict · insufficient context</div>
-                  <div class="verdict-text">Routine edit. No action.</div>
-                  <div class="transcript"><span>AGENT:</span> Which account? Which page? Has this happened before?</div>
+                  <div class="verdict-label">Cold verdict · missing graph memory</div>
+                  <div class="verdict-text">NO ACTION</div>
+                  <div class="verdict-subline">Looks routine because identity and history are absent.</div>
+                  <div class="transcript"><span>AGENT ASKS:</span> Which account? Which page? Has this happened before?</div>
                 </div>
               </div>
             </div>
@@ -496,11 +653,12 @@
               <div class="canvas-label"><span class="warm-text">WARM</span><small>FULL HISTORY</small></div>
               <div id="warmGraphCount" class="graph-count">24 nodes · 3-hop history joined</div>
               <div class="verdict-card warm">
-                <div class="turns"><strong>01</strong><span>turn to answer</span></div>
+                <div class="turns"><strong>01</strong><span>turn</span><em>answers now</em></div>
                 <div>
-                  <div class="verdict-label">Verdict · 0 questions asked</div>
-                  <div class="verdict-text">Coordinated campaign, fourth move. Escalate.</div>
-                  <div class="transcript"><span>AGENT:</span> Context pulled automatically from graph + ordered log.</div>
+                  <div class="verdict-label">Warm verdict · 0 questions asked</div>
+                  <div class="verdict-text">ESCALATE</div>
+                  <div class="verdict-subline">Fourth coordinated move found through 3-hop history.</div>
+                  <div class="transcript"><span>AGENT PULLS:</span> FalkorDB graph + LaserData replay; RocketRide/Guild gather.</div>
                 </div>
               </div>
             </div>
@@ -511,16 +669,22 @@
       <aside class="right-rail">
         <section class="panel agent-panel" aria-labelledby="agentTitle">
           <div class="panel-heading">
-            <span class="eyebrow">02</span>
+            <span class="eyebrow">Identity</span>
             <h2 id="agentTitle" class="panel-title">Agent lane</h2>
             <div class="lane-state"><span class="status-dot"></span>Thinking</div>
+          </div>
+          <div class="handover-map" aria-label="Agent identity and handover path">
+            <div class="handover-chip identity"><span>Handover node</span><strong>watcher -> commander</strong><small>identity survives resume</small></div>
+            <div class="handover-chip wave"><span>RocketRide Wave</span><strong>NOW || EVER</strong><small>parallel context pull</small></div>
+            <div class="handover-chip guild"><span>Guild</span><strong>task.gather</strong><small>analyst + responder</small></div>
+            <div class="handover-chip"><span>Human asks</span><strong>approval only</strong><small>no context interview</small></div>
           </div>
           <div id="agentFeed" class="agent-feed" role="log" aria-live="polite" aria-relevant="additions"></div>
         </section>
 
         <section class="panel case-panel" aria-labelledby="caseTitle">
           <div class="panel-heading">
-            <span class="eyebrow">03</span>
+            <span class="eyebrow">Approval</span>
             <h2 id="caseTitle" class="panel-title">Case / action</h2>
             <div class="panel-meta">PROVENANCE ATTACHED</div>
           </div>
@@ -535,10 +699,10 @@
 
             <div id="approvalCard" class="approval-card">
               <div class="approval-top">
-                <div id="approvalLabel" class="approval-label">Human approval required</div>
+                <div id="approvalLabel" class="approval-label">Only human question</div>
                 <div id="countdown" class="countdown">00:20</div>
               </div>
-              <div class="approval-question">Escalate this campaign?</div>
+              <div class="approval-question">Approve external escalation?</div>
               <div class="recommendation">Recommended: approve. Three-hop history links the live edit to three accounts and four pages in twelve minutes.</div>
               <div class="approval-actions">
                 <button id="approveButton" class="approval-button approve" type="button">Approve action</button>
@@ -563,9 +727,27 @@
           <div class="offset"><span>consumer lag</span><strong id="consumerLag" class="lag">0</strong></div>
         </div>
       </div>
-      <div class="strip-block gate-stat">
-        <div class="gate-name">Salience gate</div>
-        <div class="big-stat"><span id="eventsIn">41,208</span> events in <strong>·</strong> <span id="nodesCount">912</span> nodes <strong>·</strong> <span id="rejectedPct">97%</span> rejected</div>
+      <div class="strip-block sponsor-gates">
+        <div class="sponsor-cell">
+          <span>FalkorDB</span>
+          <strong><span id="nodesCount">912</span> nodes</strong>
+          <small>warm graph traversed</small>
+        </div>
+        <div class="sponsor-cell">
+          <span>RocketRide</span>
+          <strong>NOW || EVER</strong>
+          <small>parallel context wave</small>
+        </div>
+        <div class="sponsor-cell">
+          <span>Guild</span>
+          <strong>task.gather</strong>
+          <small>agent work orders</small>
+        </div>
+        <div class="sponsor-cell">
+          <span>Gate</span>
+          <strong><span id="eventsIn">41,208</span> in</strong>
+          <small><span id="rejectedPct">97%</span> rejected</small>
+        </div>
       </div>
       <div class="strip-block sync-block">
         <div class="strip-label">Bridge · 127.0.0.1:8931</div>
@@ -686,7 +868,7 @@
         failures: 0,
         graph: clone(mockGraph),
         ring: clone(mockRing),
-        split: false,
+        split: true,
         feed: clone(mockFeed),
         actions: clone(mockActions),
         offsets: { raw: 41208, salient: 912, lag: 0, rejected: 97 },
@@ -707,7 +889,8 @@
         approvalLabel: el("approvalLabel"), countdown: el("countdown"), approvalResult: el("approvalResult"),
         approveButton: el("approveButton"), dismissButton: el("dismissButton"),
         rawOffset: el("rawOffset"), salientOffset: el("salientOffset"), consumerLag: el("consumerLag"),
-        eventsIn: el("eventsIn"), nodesCount: el("nodesCount"), rejectedPct: el("rejectedPct"), syncTime: el("syncTime")
+        eventsIn: el("eventsIn"), nodesCount: el("nodesCount"), rejectedPct: el("rejectedPct"),
+        sameInputOffset: el("sameInputOffset"), syncTime: el("syncTime")
       };
 
       function node(id, type, label, properties = {}) { return { id, type, label, labels: [type], properties }; }
@@ -931,8 +1114,14 @@
         try {
           const response = await fetch(`${BRIDGE}${path}`, { cache: "no-store", headers: { Accept: "application/json" }, signal: controller.signal });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          return await response.json();
+          const payload = await response.json();
+          if (path === "/graph" && isErrPayload(payload)) throw new Error(payload.code ?? payload.err?.code ?? "BRIDGE_ERR");
+          return payload;
         } finally { clearTimeout(timeout); }
+      }
+
+      function isErrPayload(payload) {
+        return Boolean(payload?.err || payload?.error || payload?.code || payload?.ok === false && /unavailable|error|err/i.test(String(payload?.status ?? payload?.code ?? "")));
       }
 
       async function pollBridge() {
@@ -994,6 +1183,7 @@
         dom.consumerLag.textContent = formatInt(state.offsets.lag);
         dom.consumerLag.classList.toggle("lag", state.offsets.lag < 10);
         dom.eventsIn.textContent = formatInt(state.offsets.raw);
+        dom.sameInputOffset.textContent = formatInt(state.offsets.raw, 6);
         dom.nodesCount.textContent = formatInt(state.offsets.salient);
         dom.rejectedPct.textContent = `${Math.round(state.offsets.rejected)}%`;
       }
@@ -1058,7 +1248,7 @@
       function renderApproval() {
         const pending = approval.status === "pending";
         dom.approvalCard.className = `approval-card ${pending ? "" : `resolved ${approval.status}`}`;
-        dom.approvalLabel.textContent = pending ? "Human approval required" : approval.status === "approved" ? "Approved by human" : approval.timedOut ? "Auto-default applied" : "Dismissed by human";
+        dom.approvalLabel.textContent = pending ? "Only human question" : approval.status === "approved" ? "Approved by human" : approval.timedOut ? "Auto-default applied" : "Dismissed by human";
         dom.countdown.textContent = pending ? `00:${String(approval.remaining).padStart(2, "0")}` : approval.status === "approved" ? "APPROVED" : "DISMISSED";
         dom.approveButton.disabled = !pending;
         dom.dismissButton.disabled = !pending;
@@ -1172,8 +1362,8 @@
             n.x += n.vx;
             n.y += n.vy;
             const marginX = 18;
-            const marginTop = 36;
-            const marginBottom = this.variant === "live" ? 18 : 140;
+            const marginTop = this.variant === "live" ? 36 : 126;
+            const marginBottom = this.variant === "live" ? 18 : 210;
             n.x = Math.max(marginX, Math.min(this.width - marginX, n.x));
             n.y = Math.max(marginTop, Math.min(this.height - marginBottom, n.y));
           }
@@ -1309,9 +1499,11 @@
         graphs.cold.setData(cold);
         const actualNodes = Number(state.graph.meta?.node_count ?? state.graph.nodes.length);
         const actualEdges = Number(state.graph.meta?.edge_count ?? state.graph.edges.length);
+        if (state.mode === "live") state.offsets.salient = actualNodes;
         dom.liveGraphCount.textContent = `${formatInt(actualNodes)} nodes · ${formatInt(actualEdges)} edges${actualNodes > state.graph.nodes.length ? ` · showing ${state.graph.nodes.length}` : ""}`;
         dom.coldGraphCount.textContent = `${cold.nodes.length} nodes · replaying offset 0`;
-        dom.warmGraphCount.textContent = `${formatInt(actualNodes)} nodes · 3-hop history joined`;
+        const warmContext = state.ring.ids.length >= 4 ? "3-hop history joined" : "live graph joined";
+        dom.warmGraphCount.textContent = `${formatInt(actualNodes)} nodes · ${warmContext}`;
         dom.runTimeValue.textContent = formatRunTime(state.ring.run_time_ms);
       }
 
