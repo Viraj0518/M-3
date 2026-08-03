@@ -173,10 +173,27 @@ class LaserLog:
         snap: Dict[str, Any] = {}
         for f in flags:
             try:
-                snap[f] = bool(getattr(caps, f))
+                value = caps.get(f) if isinstance(caps, dict) else getattr(caps, f)
+                snap[f] = bool(value)
             except Exception:  # noqa: BLE001
                 pass
         return snap
+
+    async def refresh_capabilities(self) -> dict:
+        """Re-probe capabilities after Laser Stack or the managed plane restarts.
+
+        Streaming remains usable when the managed plane is unavailable, but a
+        long-lived bridge should not keep reporting the capability snapshot from
+        before a restart. This mirrors the SDK's refresh_capabilities seam while
+        keeping this project on the Log primitive only.
+
+        NOT YET WIRED: no caller invokes this today — ``app/bridge/stream.py``
+        caches its ``LaserLog`` for the process lifetime and never re-probes.
+        This is scaffolding for a reconnect/periodic-refresh hook; until that
+        lands the capability snapshot is only as fresh as the last connect.
+        """
+        self.capabilities = await self._read_capabilities(self._laser)
+        return dict(self.capabilities)
 
     def require_log_only(self) -> dict:
         """Assert we are operating within the Log primitive and return the
@@ -186,14 +203,18 @@ class LaserLog:
 
     # ── topics ──────────────────────────────────────────────────────────────
     async def topic(self, name: str) -> Any:
+        # The explicit stream/topic accessor is the canonical Laser SDK path.
+        # The default-stream shortcut is retained only for older SDK builds.
+        stream_accessor = getattr(self._laser, "stream", None)
+        if callable(stream_accessor):
+            return await _aw(stream_accessor(self._stream).topic(name))
         return await _aw(self._laser.topic(name))
 
     async def ensure_topic(self, name: str, partitions: int = config.TOPIC_PARTITIONS) -> Any:
         t = await self.topic(name)
-        try:
-            await _aw(t.ensure(partitions))
-        except Exception:  # noqa: BLE001 - already exists / benign
-            pass
+        # Laser SDK ensure() is idempotent. Do not turn auth, transport, or
+        # schema errors into a false-successful publish path.
+        await _aw(t.ensure(partitions=partitions))
         return t
 
     # ── publish ─────────────────────────────────────────────────────────────
@@ -209,6 +230,7 @@ class LaserLog:
             t.producer(
                 batch_length=config.PRODUCER_BATCH_LENGTH,
                 linger_ms=config.PRODUCER_LINGER_MS,
+                retries=3,
                 partitions=config.TOPIC_PARTITIONS,
             )
         )
@@ -223,7 +245,8 @@ class LaserLog:
         parallel consumers (key=wiki in the edge tap)."""
         prod = await self.producer(topic_name)
         payload = value if isinstance(value, (bytes, bytearray)) else json.dumps(value, default=str).encode("utf-8")
-        await _aw(prod.send(payload, key=key))
+        routing_key = key.encode("utf-8") if isinstance(key, str) else key
+        await _aw(prod.send(payload, key=routing_key))
 
     # ── consume (group) ─────────────────────────────────────────────────────
     async def consumer_group(
